@@ -32,8 +32,8 @@ These gate **Task 6 and Task 7** only. Tasks 1–5 need none of them and can be 
 - [ ] **Toast read-only API access.** In Toast Web, confirm the restaurant is on **RMS Essentials or higher** and that the admin has the **Manage Integrations** permission. Then: Toast Web → **Toast Partner Integrations** → set up **Standard API Access** → generate a **read-only** credential set scoped to the restaurant.
   - **Done when:** you hold a `clientId`, a `clientSecret`, and the **restaurant GUID**.
   - **If blocked** (plan below RMS Essentials): stop and decide on a plan change before Plan 2 — sales data cannot be pulled without this.
-- [ ] **Databricks Free Edition workspace.** Sign up at the Databricks Free Edition signup. In the workspace: note the **workspace host URL**; open SQL → the pre-provisioned **Serverless Starter Warehouse** → **Connection details** → copy the **Server hostname** and **HTTP path**; create a **Personal Access Token** (Settings → Developer → Access tokens); create a **catalog** named `restaurant_forecast` (Catalog → Create) and a **schema** `dev`.
-  - **Done when:** you have `DBX_HOST`, `DBX_HTTP_PATH`, `DBX_TOKEN`, and the `restaurant_forecast.dev` catalog/schema exists.
+- [ ] **Databricks Free Edition workspace.** Sign up at the Databricks Free Edition signup. In the workspace: note the **workspace host URL**; open SQL → the pre-provisioned **Serverless Starter Warehouse** → **Connection details** → copy the **Server hostname** and **HTTP path**; create a **Personal Access Token** (Settings → Developer → Access tokens); **use the default catalog** (Catalog explorer; usually `workspace`) — dbt creates the schema on first run, so no catalog creation is needed.
+  - **Done when:** you have `DBX_HOST`, `DBX_HTTP_PATH`, `DBX_TOKEN`, and your default catalog name (e.g. `workspace`) for `DBX_CATALOG`.
 - [ ] **Tableau Public account** created (free) at the Tableau Public signup. *(Used in Plan 2; create now so it's ready.)*
   - **Done when:** you can log in to Tableau Public.
 

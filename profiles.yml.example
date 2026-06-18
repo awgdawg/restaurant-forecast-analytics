@@ -3,7 +3,7 @@ restaurant_forecast:
   outputs:
     dev:
       type: databricks
-      catalog: "{{ env_var('DBX_CATALOG', 'restaurant_forecast') }}"
+      catalog: "{{ env_var('DBX_CATALOG', 'workspace') }}"
       schema: "{{ env_var('DBX_SCHEMA', 'dev') }}"
       host: "{{ env_var('DBX_HOST') }}"
       http_path: "{{ env_var('DBX_HTTP_PATH') }}"

@@ -277,9 +277,24 @@ sales-summary total within tolerance (see §13).
 
 Captured here so the architecture leaves room for them; not in scope for v1.
 
-- **Labor / staffing forecast** — already planned as Phase 2 (M5).
+- **Labor / staffing forecast** *(Phase 2, M5)* — forecast staffing demand and turn it into a
+  recommended schedule. Data-source options: Toast **Labor API** (actual clocked hours) and/or
+  the **Sling API** (`api.getsling.com`, self-serve token auth, public docs + examples). Sling
+  is **"by Toast"** (the integration syncs employees, wages, schedules, timesheets, and summary
+  sales every ~15 min; timesheets in real time) and holds the **planned schedules/shifts** plus
+  built-in **scheduled-vs-actual** labor comparison — a strong fit for "forecast demand →
+  recommend a schedule → compare to what was actually scheduled." Note: Sling's sales data is
+  *summary only*, so the **Toast Orders API stays the source for sales forecasting**.
 - **Shopify online channel** — add Shopify Admin API ingestion for online orders; enables
   channel comparison and customer **cohort/retention** analysis (separate skill gaps).
+- **Near-real-time intraday view** *(Phase 3)* — a "today vs. forecast" pacing dashboard
+  refreshed every ~5–15 min. Freshness is capped by Toast (poll the Orders API every N
+  minutes, or webhooks if Toast grants them — webhooks need a hosted public receiver).
+  **Tableau Public can't refresh sub-daily**, so this view uses a separate surface.
+  Recommended **$0 path:** a local scheduled poller, gated to **operating hours on open days
+  only**, → BigQuery free tier → **Looker Studio**. A paid Databricks serverless micro-batch
+  (~15–30 min, with a 1-min billing minimum) fits the ~$50/mo budget if ever wanted. Tableau
+  Public stays the daily deliverable.
 - **Inventory & ingredient demand forecasting** *(requested)* — the high-value extension:
   1. **Recipe / bill-of-materials (BOM) model** — enter each menu item's component
      ingredients with quantities + units (manual entry → a maintained table/seed).

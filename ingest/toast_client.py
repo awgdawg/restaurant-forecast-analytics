@@ -12,7 +12,9 @@ class ToastAuthError(RuntimeError):
 class ToastClient:
     """Minimal Toast API client: authenticate once, then issue authenticated GETs."""
 
-    def __init__(self, config: ToastConfig, session: requests.Session | None = None) -> None:
+    def __init__(
+        self, config: ToastConfig, session: requests.Session | None = None
+    ) -> None:
         self._config = config
         self._session = session or requests.Session()
         self._token: str | None = None

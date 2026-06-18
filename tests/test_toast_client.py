@@ -18,7 +18,13 @@ def test_authenticate_returns_access_token():
     responses.add(
         responses.POST,
         LOGIN_URL,
-        json={"token": {"tokenType": "Bearer", "accessToken": "abc123", "expiresIn": 86400}},
+        json={
+            "token": {
+                "tokenType": "Bearer",
+                "accessToken": "abc123",
+                "expiresIn": 86400,
+            }
+        },
         status=200,
     )
     client = ToastClient(CONFIG)
@@ -48,7 +54,9 @@ def test_get_sends_bearer_and_restaurant_header():
         status=200,
     )
     client = ToastClient(CONFIG)
-    body = client.get("/orders/v2/ordersBulk", params={"startDate": "x", "endDate": "y"})
+    body = client.get(
+        "/orders/v2/ordersBulk", params={"startDate": "x", "endDate": "y"}
+    )
 
     assert body == [{"guid": "order-1"}]
     get_request = responses.calls[1].request

@@ -1,0 +1,11 @@
+restaurant_forecast:
+  target: dev
+  outputs:
+    dev:
+      type: databricks
+      catalog: "{{ env_var('DBX_CATALOG', 'restaurant_forecast') }}"
+      schema: "{{ env_var('DBX_SCHEMA', 'dev') }}"
+      host: "{{ env_var('DBX_HOST') }}"
+      http_path: "{{ env_var('DBX_HTTP_PATH') }}"
+      token: "{{ env_var('DBX_TOKEN') }}"
+      threads: 4

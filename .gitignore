@@ -1,0 +1,39 @@
+# ── Secrets / credentials — NEVER commit (standing security rule) ──
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+credentials.json
+token.json
+secrets/
+profiles.yml            # dbt connection profile (may hold host/token) — commit profiles.yml.example instead
+
+# ── Real business data — never commit or publish (privacy) ──
+data/
+raw/
+*.parquet
+*.hyper                 # Tableau extracts (embed data)
+*.twbx                  # packaged Tableau workbooks (embed data) — keep .twb only
+*.csv
+!seeds/**/*.csv         # allow committed dbt seeds (must be anonymized/sample only)
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.ipynb_checkpoints/
+
+# ── dbt ──
+target/
+dbt_packages/
+logs/
+
+# ── OS / IDE ──
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

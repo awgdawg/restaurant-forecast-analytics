@@ -1,0 +1,274 @@
+# Restaurant Sales & Labor Forecasting — Design Spec
+
+- **Date:** 2026-06-18
+- **Status:** Draft (awaiting review)
+- **Author:** August Turner
+- **Repo:** `restaurant-forecast-analytics` (new project on `E:\PyProj\`)
+
+---
+
+## 1. Summary
+
+Build an end-to-end analytics-engineering pipeline that pulls a single restaurant's
+**live Toast POS data via API**, models it with **dbt on a Databricks lakehouse**,
+**forecasts daily sales** (and, in Phase 2, labor demand) with Python time-series
+models, and publishes an interactive **forecast-vs-actuals dashboard to Tableau Public**
+that is embedded in the portfolio site.
+
+The project targets two named skill gaps — **forecasting/predictive modeling** and
+**Tableau** — in one build, and is architected so it can later graduate into an
+operational tool for the business on a paid Databricks workspace.
+
+## 2. Goals
+
+- Demonstrate **live REST API ingestion** (Toast Standard API Access, read-only).
+- Demonstrate a modern **lakehouse + dbt** transformation layer (Databricks + `dbt-databricks`).
+- Demonstrate **time-series forecasting that beats a naive baseline** (forecasting gap).
+- Demonstrate **Tableau** via a published, embedded dashboard (Tableau gap).
+- Produce a polished, **public portfolio artifact** — code public, real data private/anonymized.
+- Preserve a clean **upgrade path** to a paid/operational Databricks deployment.
+
+## 3. Non-Goals (YAGNI)
+
+- No write-back to Toast — read-only only.
+- No real-time/streaming — daily batch is sufficient.
+- No multi-location/multi-tenant design — single restaurant.
+- No commercial/operational deployment in v1 (Free Edition is non-commercial).
+- **Shopify deferred** — reserved for a future channel/cohort/financial-attribution project.
+- **Labor forecasting deferred to Phase 2** — daily sales forecast is the MVP.
+
+## 4. Skill-gap mapping
+
+| Skill gap | How this project hits it |
+| --- | --- |
+| Forecasting / predictive modeling | Daily sales forecast: baseline → Prophet/SARIMA, rolling backtest |
+| Tableau | Published Tableau Public dashboard, embedded in the portfolio site |
+| *(future)* Cohort analysis | Shopify customer/order cohorts (separate project) |
+| *(future)* Financial attribution | Menu/channel contribution margin (needs cost data) |
+
+## 5. Data sources
+
+### Toast (primary)
+
+- **Access:** Toast **Standard API Access** (read-only) — self-serve for U.S. customers on
+  **RMS Essentials or higher** with the **Manage Integrations** permission. Generated from
+  Toast Web → Toast Partner Integrations. Yields a `clientId` + `clientSecret` and the
+  **restaurant GUID**.
+- **Auth:** `POST {base}/authentication/v1/authentication/login` with client credentials →
+  dynamic **Bearer token** (refresh on expiry). Restaurant scoping via the
+  `Toast-Restaurant-External-ID` header.
+- **Base URL:** production `https://ws-api.toasttab.com`.
+- **Endpoints** *(confirm exact paths + granted scopes against the dev docs at build time)*:
+  - **Orders** — `/orders/v2/ordersBulk` → checks, line items, amounts, timestamps,
+    dining option (dine-in / takeout / delivery), daypart → core sales signal.
+  - **Labor** — `/labor/v1/timeEntries`, `/labor/v1/shifts`, `/labor/v1/employees`
+    → hours worked, labor cost (Phase 2).
+  - **Config / Menus** — `/config/v2/menus` → item ↔ category mapping.
+  - **Restaurant** — restaurant metadata / GUID confirmation.
+
+### Shopify (deferred)
+
+- Self-serve Admin API token (custom app). **Out of scope for v1**; noted as a future
+  online-channel / cohort extension.
+
+## 6. Architecture & data flow
+
+```
+Toast API ──(local) ingest/──▶ raw Parquet ──load──▶ Databricks Delta (bronze)
+   └▶ dbt-databricks: staging (silver) ──▶ marts (gold: daily & daypart sales, labor)
+        └▶ notebook: Prophet / SARIMA forecast ──▶ forecast table (gold)
+             └▶ export + anonymize ──▶ CSV/Hyper extract ──▶ Tableau Public ──▶ embed in portfolio
+```
+
+**Why extraction runs locally (not inside Databricks):** Free Edition restricts outbound
+internet, so the Toast API pulls run on the local machine via `requests`, then the raw
+output is loaded **into** the lakehouse. This also keeps extraction portable/testable and
+ports cleanly to in-platform ingestion on a paid workspace.
+
+## 7. Tech stack
+
+- **Python 3.10+** — `requests`, `pandas`, `pyarrow`, `python-dotenv`, `prophet`,
+  `statsmodels` / `pmdarima`.
+- **Databricks Free Edition** — Delta Lake, Unity Catalog volume (raw landing),
+  serverless compute, the single pre-provisioned **2X-Small Serverless Starter Warehouse**
+  (dbt target).
+- **dbt-databricks** — staging + marts; auth via a Databricks **PAT** stored in an env var.
+- **Tableau Public** (free) — dashboard + publishing.
+- **GitHub Actions** (CI), **pre-commit** (`ruff`, `sqlfluff`).
+
+## 8. Repository structure
+
+```
+restaurant-forecast-analytics/
+├─ ingest/
+│  ├─ toast_client.py      # auth → Bearer; paginated GET (orders, labor, config); retry
+│  └─ extract.py           # CLI: pull a date range → raw Parquet (partitioned by date)
+├─ load/
+│  └─ load_to_delta.py     # raw Parquet → Delta bronze (MERGE, idempotent by date)
+├─ models/                 # dbt
+│  ├─ staging/             # stg_* (typed, cleaned)
+│  └─ marts/               # fct_daily_sales, fct_daypart_sales, fct_labor, dims
+├─ notebooks/
+│  └─ forecast_sales.py    # baseline → Prophet/SARIMA + rolling backtest → forecast table
+├─ export/
+│  └─ anonymize_export.py  # marts → scaled/anonymized extract for Tableau Public
+├─ tableau/                # .twb workbook (no embedded real data)
+├─ tests/                  # pytest (client/transforms)
+├─ seeds/                  # dbt seeds (anonymized/sample only)
+├─ .github/workflows/      # CI
+├─ docs/                   # spec, writeup, screenshots
+├─ .env.example
+├─ profiles.yml.example
+├─ dbt_project.yml
+├─ requirements.txt
+├─ .pre-commit-config.yaml
+├─ .gitignore
+└─ README.md
+```
+
+## 9. Components
+
+Each unit has one clear purpose, a defined interface, and explicit dependencies.
+
+- **`toast_client.py`** — *What:* authenticate and fetch raw Toast data.
+  *Interface:* `ToastClient(creds).get_orders(start, end)`, `.get_labor(...)`, `.get_menus()`.
+  *Depends on:* `requests`, env-supplied credentials + restaurant GUID.
+- **`extract.py`** — *What:* CLI to pull a date range and write partitioned raw Parquet.
+  *Interface:* `python -m ingest.extract --start 2025-01-01 --end 2025-01-31 [--full-refresh]`.
+  *Depends on:* `toast_client`, local filesystem (`data/raw/`, gitignored).
+- **`load_to_delta.py`** — *What:* land raw Parquet into Delta **bronze**, idempotent by
+  business date. *Depends on:* Databricks workspace + UC volume.
+- **dbt `staging/`** — *What:* type/clean/standardize bronze into `stg_*` silver views.
+- **dbt `marts/`** — *What:* business-grain gold tables (see §10).
+- **`forecast_sales.py`** (notebook) — *What:* train baseline + models, backtest, write
+  `forecast_daily_sales`. *Depends on:* marts, `prophet`/`statsmodels`.
+- **`anonymize_export.py`** — *What:* scale + relabel marts/forecast into a publish-safe
+  extract for Tableau. *Depends on:* marts + forecast table.
+- **`tableau/` workbook** — *What:* forecast-vs-actuals dashboard on the anonymized extract.
+
+## 10. Data model (marts)
+
+- **`dim_date`** — calendar with day-of-week, US holiday flags, daypart boundaries.
+- **`dim_menu_item` / `dim_menu_category`** — menu hierarchy (from config API).
+- **`fct_daily_sales`** — grain: `business_date`. Measures: `net_sales`, `gross_sales`,
+  `order_count`, `guest_count`, `discount_total`, `void_total`, channel split
+  (dine-in / takeout / delivery).
+- **`fct_daypart_sales`** — grain: `business_date` × `daypart`.
+- **`fct_labor`** *(Phase 2)* — grain: `business_date` (× `role`). Measures: `hours`,
+  `labor_cost`, `headcount`.
+- **`forecast_daily_sales`** — grain: `forecast_date` × `model`. Columns: `yhat`,
+  `yhat_lower`, `yhat_upper`, `model`, `run_ts`.
+
+**Reconciliation rule:** `fct_daily_sales.net_sales` per day must tie to Toast's own daily
+sales-summary total within tolerance (see §13).
+
+## 11. Forecasting approach
+
+- **Target (MVP):** daily `net_sales`. **Extension:** daypart-level. **Phase 2:** labor hours/demand.
+- **Seasonality / regressors:** weekly (day-of-week), annual (if history allows), US holidays,
+  known closures/events; weather is a future enhancement.
+- **Models:**
+  1. **Baseline** — seasonal-naive (same weekday last week / last year).
+  2. **Prophet** — additive, weekly + yearly seasonality, holiday regressors.
+  3. **SARIMA / `auto_arima`** — comparison model.
+- **Validation:** rolling-origin (expanding-window) backtest; forecast horizon **14 days**;
+  metrics **MAPE / RMSE / MAE** vs. baseline.
+- **History requirement:** confirm available Toast history at ingest (M1). `< 12 mo` →
+  weekly-only seasonality; `≥ 18–24 mo` → enable yearly seasonality. Document the actual depth.
+- **Execution:** runs in a Databricks notebook if Free Edition permits the needed `%pip`
+  installs (e.g. `prophet`); otherwise the *same code* runs locally against the exported
+  marts — so a library/outbound constraint never becomes a hard blocker.
+
+## 12. Reliability & error handling
+
+- **API:** exponential backoff + jitter on `429`/`5xx`; re-auth on `401`/token expiry;
+  honor rate limits; paginate via cursor/page tokens; bounded date-window pulls.
+- **Idempotency:** raw pulls keyed by business date; re-runs overwrite/MERGE that date's
+  partition (no duplicates).
+- **Incremental:** default last-N-days incremental; `--full-refresh` for backfill.
+- **Load:** raw written as date-partitioned Parquet → `MERGE` into Delta bronze.
+
+## 13. Testing & quality
+
+- **pytest** — `toast_client` (auth, pagination, retry, parsing) against mocked HTTP;
+  transform helpers.
+- **dbt tests** — `not_null`/`unique` on keys; relationships; `accepted_values`
+  (daypart, channel); a **custom reconciliation test** (marts vs. Toast daily summary,
+  tolerance ≤ 0.5%); freshness/row-count.
+- **pre-commit** — `ruff` (Python), `sqlfluff` (SQL), whitespace/EOF.
+- **CI (GitHub Actions)** — lint + pytest + `dbt build` against a CI target (or compile-only
+  if no warehouse is wired into CI) on each PR.
+
+## 14. Security, secrets & data privacy
+
+- **Secrets:** `clientId`/`clientSecret`, Databricks **PAT**, restaurant GUID → `.env`
+  (gitignored) locally and **Databricks Secrets** in-platform. Never committed.
+  `.env.example` documents required variables. dbt `profiles.yml` uses `env_var()`; only
+  `profiles.yml.example` is committed.
+- **`.gitignore` from the first commit** covers `.env*`, `*.pem`/`*.key`/`*.p12`,
+  `credentials.json`, `token.json`, `secrets/`, `data/`/`raw/`, `*.parquet`, `*.hyper`,
+  `*.twbx`, `profiles.yml`.
+- **Data privacy (important):** the data is a **real small business's financials**, and a
+  portfolio repo + Tableau Public are **fully public and downloadable**. Therefore:
+  - Raw/granular real data is **never committed and never published**.
+  - The public dashboard and any committed sample use **anonymized + scaled** data
+    (net sales × an undisclosed factor, generic item/category labels, no location/employee PII).
+  - **Code, methodology, and screenshots are public; real numbers are not.**
+  - If the business later operationalizes (paid Databricks), that **private** deployment uses real data.
+- **Repo visibility:** portfolio repos are intentionally **public** — acceptable here *only
+  because* secrets are gitignored and published data is anonymized. Confirm public vs. private
+  at remote-creation time.
+
+## 15. Environment & cost
+
+- **Free Edition:** $0, **non-commercial**. Constraints: serverless-only; single 2X-Small
+  Starter SQL Warehouse (dbt target); restricted outbound internet (→ local extract);
+  daily quota (ample for one restaurant); no SLA.
+- **Paid-upgrade path** (if the business adopts it): commercial **Premium** workspace; add a
+  scheduled **Job/Workflow** for nightly refresh; optionally move ingestion in-platform;
+  realistically **low-tens of dollars/month** with serverless + auto-stop + Jobs compute
+  (cost discipline matters more than data size). Decide via the **14-day trial** after the MVP.
+  The architecture ports with minimal rework.
+
+## 16. Milestones
+
+- **M0 — Access & accounts** *(real-world, can start now, in parallel)*: confirm Toast plan
+  (RMS Essentials+) and Manage Integrations permission → generate read-only credentials +
+  capture restaurant GUID; sign up for Databricks Free Edition (note workspace URL, Starter
+  Warehouse HTTP path, create a UC volume + a PAT); create a Tableau Public account.
+- **M1 — Ingest:** `toast_client` + `extract.py`; pull a date range of orders (+labor) to
+  local Parquet; verify totals against the Toast dashboard; record actual history depth.
+- **M2 — Load + transform:** land raw → Delta bronze; dbt staging → marts (daily/daypart
+  sales); reconciliation test passes.
+- **M3 — Forecast MVP (sales):** baseline + Prophet (+ SARIMA); rolling backtest; beat the
+  baseline; write `forecast_daily_sales`.
+- **M4 — Tableau + portfolio:** anonymize/scale marts → extract → Tableau Public dashboard
+  (forecast vs. actuals, filters, KPI cards); embed/link from the portfolio; README + writeup.
+- **M5 — Labor forecast (Phase 2):** `fct_labor` + labor/staffing-demand forecast; extend dashboard.
+- **M6 — Polish:** CI green; docs; cost notes; optional paid-trial evaluation.
+
+## 17. Assumptions & open questions
+
+- **Assumption:** portfolio/learning use (Free Edition, non-commercial). Commercial/operational
+  decision deferred to post-MVP.
+- **Assumption:** project name `restaurant-forecast-analytics` (rename freely).
+- **Open:** actual Toast history depth (drives yearly seasonality) — confirm at M1.
+- **Open:** exact Toast endpoint paths + scopes for the granted credential set — confirm at M1.
+- **Open:** daypart definitions matching the restaurant's actual service windows.
+- **Open:** anonymization factor + label mapping for public publishing.
+- **Open:** whether Free Edition serverless allows `%pip install` of `prophet`/`pmdarima`;
+  if not, forecasting runs locally against exported marts (see §11).
+
+## 18. Success criteria (verifiable)
+
+1. `extract.py` performs a **real Toast API round-trip** — pulls live orders for a date range
+   with a valid token.
+2. `dbt build` produces the marts and the **reconciliation test ties** daily net sales to
+   Toast's summary within tolerance (≤ 0.5%).
+3. The forecast **beats the seasonal-naive baseline** on a 14-day rolling backtest (lower MAPE),
+   documented with the numbers.
+4. A **Tableau Public dashboard** (anonymized data) is published and embedded/linked from the
+   portfolio site.
+5. Repo is **public-safe**: no secrets and no real granular financials committed or published;
+   **CI green**.
+6. `README` documents the architecture, how to run it, the results, and the paid-upgrade path.

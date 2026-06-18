@@ -25,7 +25,7 @@ operational tool for the business on a paid Databricks workspace.
 - Demonstrate a modern **lakehouse + dbt** transformation layer (Databricks + `dbt-databricks`).
 - Demonstrate **time-series forecasting that beats a naive baseline** (forecasting gap).
 - Demonstrate **Tableau** via a published, embedded dashboard (Tableau gap).
-- Produce a polished, **public portfolio artifact** — code public, real data private/anonymized.
+- Produce a polished, **public portfolio artifact** (real results shown; secrets never committed).
 - Preserve a clean **upgrade path** to a paid/operational Databricks deployment.
 
 ## 3. Non-Goals (YAGNI)
@@ -36,6 +36,7 @@ operational tool for the business on a paid Databricks workspace.
 - No commercial/operational deployment in v1 (Free Edition is non-commercial).
 - **Shopify deferred** — reserved for a future channel/cohort/financial-attribution project.
 - **Labor forecasting deferred to Phase 2** — daily sales forecast is the MVP.
+- **Inventory / recipe forecasting deferred** — high-value future direction (see §19).
 
 ## 4. Skill-gap mapping
 
@@ -43,8 +44,9 @@ operational tool for the business on a paid Databricks workspace.
 | --- | --- |
 | Forecasting / predictive modeling | Daily sales forecast: baseline → Prophet/SARIMA, rolling backtest |
 | Tableau | Published Tableau Public dashboard, embedded in the portfolio site |
+| *(future)* Financial attribution | Recipe/BOM → COGS & food-cost %; menu/channel margin (see §19) |
+| *(future)* Inventory / purchasing | Recipe/BOM × item sales → ingredient demand forecast & PO recommendations (see §19) |
 | *(future)* Cohort analysis | Shopify customer/order cohorts (separate project) |
-| *(future)* Financial attribution | Menu/channel contribution margin (needs cost data) |
 
 ## 5. Data sources
 
@@ -77,7 +79,7 @@ operational tool for the business on a paid Databricks workspace.
 Toast API ──(local) ingest/──▶ raw Parquet ──load──▶ Databricks Delta (bronze)
    └▶ dbt-databricks: staging (silver) ──▶ marts (gold: daily & daypart sales, labor)
         └▶ notebook: Prophet / SARIMA forecast ──▶ forecast table (gold)
-             └▶ export + anonymize ──▶ CSV/Hyper extract ──▶ Tableau Public ──▶ embed in portfolio
+             └▶ export ──▶ CSV/Hyper extract ──▶ Tableau Public ──▶ embed in portfolio
 ```
 
 **Why extraction runs locally (not inside Databricks):** Free Edition restricts outbound
@@ -111,10 +113,10 @@ restaurant-forecast-analytics/
 ├─ notebooks/
 │  └─ forecast_sales.py    # baseline → Prophet/SARIMA + rolling backtest → forecast table
 ├─ export/
-│  └─ anonymize_export.py  # marts → scaled/anonymized extract for Tableau Public
-├─ tableau/                # .twb workbook (no embedded real data)
+│  └─ export_extract.py    # marts/forecast → CSV/Hyper extract for Tableau Public
+├─ tableau/                # .twb workbook
 ├─ tests/                  # pytest (client/transforms)
-├─ seeds/                  # dbt seeds (anonymized/sample only)
+├─ seeds/                  # dbt seeds
 ├─ .github/workflows/      # CI
 ├─ docs/                   # spec, writeup, screenshots
 ├─ .env.example
@@ -142,9 +144,9 @@ Each unit has one clear purpose, a defined interface, and explicit dependencies.
 - **dbt `marts/`** — *What:* business-grain gold tables (see §10).
 - **`forecast_sales.py`** (notebook) — *What:* train baseline + models, backtest, write
   `forecast_daily_sales`. *Depends on:* marts, `prophet`/`statsmodels`.
-- **`anonymize_export.py`** — *What:* scale + relabel marts/forecast into a publish-safe
-  extract for Tableau. *Depends on:* marts + forecast table.
-- **`tableau/` workbook** — *What:* forecast-vs-actuals dashboard on the anonymized extract.
+- **`export_extract.py`** — *What:* export marts + forecast to a Tableau extract
+  (CSV/Hyper). *Depends on:* marts + forecast table.
+- **`tableau/` workbook** — *What:* forecast-vs-actuals dashboard on the exported extract.
 
 ## 10. Data model (marts)
 
@@ -199,25 +201,24 @@ sales-summary total within tolerance (see §13).
 - **CI (GitHub Actions)** — lint + pytest + `dbt build` against a CI target (or compile-only
   if no warehouse is wired into CI) on each PR.
 
-## 14. Security, secrets & data privacy
+## 14. Security, secrets & data handling
 
 - **Secrets:** `clientId`/`clientSecret`, Databricks **PAT**, restaurant GUID → `.env`
   (gitignored) locally and **Databricks Secrets** in-platform. Never committed.
   `.env.example` documents required variables. dbt `profiles.yml` uses `env_var()`; only
   `profiles.yml.example` is committed.
 - **`.gitignore` from the first commit** covers `.env*`, `*.pem`/`*.key`/`*.p12`,
-  `credentials.json`, `token.json`, `secrets/`, `data/`/`raw/`, `*.parquet`, `*.hyper`,
-  `*.twbx`, `profiles.yml`.
-- **Data privacy (important):** the data is a **real small business's financials**, and a
-  portfolio repo + Tableau Public are **fully public and downloadable**. Therefore:
-  - Raw/granular real data is **never committed and never published**.
-  - The public dashboard and any committed sample use **anonymized + scaled** data
-    (net sales × an undisclosed factor, generic item/category labels, no location/employee PII).
-  - **Code, methodology, and screenshots are public; real numbers are not.**
-  - If the business later operationalizes (paid Databricks), that **private** deployment uses real data.
-- **Repo visibility:** portfolio repos are intentionally **public** — acceptable here *only
-  because* secrets are gitignored and published data is anonymized. Confirm public vs. private
-  at remote-creation time.
+  `credentials.json`, `token.json`, `secrets/`, plus `data/`/`raw/`/`*.parquet`/`*.hyper`/
+  `*.twbx` (the last group for **repo hygiene** — bulk data lives in the lakehouse, not git).
+- **Business financials are published as real numbers.** Per the owner's decision, the
+  dashboard and writeup use the restaurant's **actual** figures (no scaling or relabeling) —
+  it's the owner's data and their call to share. Code, methodology, and real results are public.
+- **Employee PII (recommended guard, not a hard requirement):** labor data can include
+  employee names and wages. Recommend masking/aggregating individual-employee identifiers in
+  any *public* labor view (roll up to totals/roles), since that's staff personal data rather
+  than the owner's own figures. Decide at the labor phase (M5).
+- **Repo visibility:** intended **public** (portfolio). Acceptable because secrets are
+  gitignored; confirm public vs. private at remote-creation time.
 
 ## 15. Environment & cost
 
@@ -242,7 +243,7 @@ sales-summary total within tolerance (see §13).
   sales); reconciliation test passes.
 - **M3 — Forecast MVP (sales):** baseline + Prophet (+ SARIMA); rolling backtest; beat the
   baseline; write `forecast_daily_sales`.
-- **M4 — Tableau + portfolio:** anonymize/scale marts → extract → Tableau Public dashboard
+- **M4 — Tableau + portfolio:** export marts → extract → Tableau Public dashboard
   (forecast vs. actuals, filters, KPI cards); embed/link from the portfolio; README + writeup.
 - **M5 — Labor forecast (Phase 2):** `fct_labor` + labor/staffing-demand forecast; extend dashboard.
 - **M6 — Polish:** CI green; docs; cost notes; optional paid-trial evaluation.
@@ -255,7 +256,7 @@ sales-summary total within tolerance (see §13).
 - **Open:** actual Toast history depth (drives yearly seasonality) — confirm at M1.
 - **Open:** exact Toast endpoint paths + scopes for the granted credential set — confirm at M1.
 - **Open:** daypart definitions matching the restaurant's actual service windows.
-- **Open:** anonymization factor + label mapping for public publishing.
+- **Open:** employee-PII handling in published labor views (mask/aggregate) — confirm at M5.
 - **Open:** whether Free Edition serverless allows `%pip install` of `prophet`/`pmdarima`;
   if not, forecasting runs locally against exported marts (see §11).
 
@@ -267,8 +268,32 @@ sales-summary total within tolerance (see §13).
    Toast's summary within tolerance (≤ 0.5%).
 3. The forecast **beats the seasonal-naive baseline** on a 14-day rolling backtest (lower MAPE),
    documented with the numbers.
-4. A **Tableau Public dashboard** (anonymized data) is published and embedded/linked from the
-   portfolio site.
-5. Repo is **public-safe**: no secrets and no real granular financials committed or published;
+4. A **Tableau Public dashboard** is published and embedded/linked from the portfolio site.
+5. Repo is **public-safe**: no secrets committed and no bulk raw-data dumps in git (hygiene);
    **CI green**.
 6. `README` documents the architecture, how to run it, the results, and the paid-upgrade path.
+
+## 19. Future roadmap (post-v1)
+
+Captured here so the architecture leaves room for them; not in scope for v1.
+
+- **Labor / staffing forecast** — already planned as Phase 2 (M5).
+- **Shopify online channel** — add Shopify Admin API ingestion for online orders; enables
+  channel comparison and customer **cohort/retention** analysis (separate skill gaps).
+- **Inventory & ingredient demand forecasting** *(requested)* — the high-value extension:
+  1. **Recipe / bill-of-materials (BOM) model** — enter each menu item's component
+     ingredients with quantities + units (manual entry → a maintained table/seed).
+  2. **Theoretical usage** — join the BOM to **item-level sales** (Toast order lines) to
+     compute how much of each ingredient was consumed over any period (depletion).
+  3. **Ingredient demand forecast** — extend the sales forecast to **item level**, then
+     explode item forecasts through the BOM → forecast **ingredient/supply demand**.
+  4. **Purchasing recommendations** — combine forecast demand with on-hand counts, par
+     levels, pack sizes, and supplier lead times → recommend **how much of each ingredient
+     to order and when**.
+  5. **Variance / waste analysis** *(optional)* — compare theoretical usage vs. actual
+     inventory counts → surface shrinkage, over-portioning, and food-cost variance.
+  - **New data required:** recipes/BOM, ingredient units + pack sizes, supplier/purchasing
+    data, and periodic on-hand counts (Toast menu/inventory data may cover part of this).
+  - **Skill-gap value:** deepens forecasting (hierarchical / item-level), adds **financial
+    attribution** (COGS, food-cost %), and demonstrates operational optimization — strong
+    portfolio value *and* real day-to-day value for the business.

@@ -10,14 +10,14 @@ token.json
 secrets/
 profiles.yml            # dbt connection profile (may hold host/token) — commit profiles.yml.example instead
 
-# ── Real business data — never commit or publish (privacy) ──
+# ── Raw data — keep out of git (repo hygiene; bulk data lives in the lakehouse) ──
 data/
 raw/
 *.parquet
-*.hyper                 # Tableau extracts (embed data)
-*.twbx                  # packaged Tableau workbooks (embed data) — keep .twb only
+*.hyper                 # Tableau extracts
+*.twbx                  # packaged Tableau workbooks — keep .twb only
 *.csv
-!seeds/**/*.csv         # allow committed dbt seeds (must be anonymized/sample only)
+!seeds/**/*.csv         # allow committed dbt seeds
 
 # ── Python ──
 __pycache__/

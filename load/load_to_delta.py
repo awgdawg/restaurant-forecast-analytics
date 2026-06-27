@@ -23,6 +23,7 @@ COLUMNS = [
     "total_amount",
     "tax_amount",
     "tip_amount",
+    "deferred_amount",
     "voided",
     "deleted",
 ]
@@ -40,6 +41,7 @@ _DDL_TYPES = {
     "total_amount": "DOUBLE",
     "tax_amount": "DOUBLE",
     "tip_amount": "DOUBLE",
+    "deferred_amount": "DOUBLE",
     "voided": "BOOLEAN",
     "deleted": "BOOLEAN",
 }

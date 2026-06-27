@@ -17,6 +17,7 @@ def test_columns_match_flatten_output():
         "total_amount",
         "tax_amount",
         "tip_amount",
+        "deferred_amount",
         "voided",
         "deleted",
     }

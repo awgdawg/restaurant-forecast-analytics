@@ -62,3 +62,40 @@ def test_get_sends_bearer_and_restaurant_header():
     get_request = responses.calls[1].request
     assert get_request.headers["Authorization"] == "Bearer abc123"
     assert get_request.headers["Toast-Restaurant-External-ID"] == "guid-123"
+
+
+@responses.activate
+def test_get_paginated_follows_pages_until_short_page():
+    responses.add(
+        responses.POST,
+        LOGIN_URL,
+        json={"token": {"accessToken": "abc123"}},
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        "https://ws-api.toasttab.com/orders/v2/ordersBulk",
+        json=[{"guid": "a"}, {"guid": "b"}],
+        status=200,
+        match=[
+            responses.matchers.query_param_matcher(
+                {"businessDate": "20260625", "pageSize": "2", "page": "1"}
+            )
+        ],
+    )
+    responses.add(
+        responses.GET,
+        "https://ws-api.toasttab.com/orders/v2/ordersBulk",
+        json=[{"guid": "c"}],
+        status=200,
+        match=[
+            responses.matchers.query_param_matcher(
+                {"businessDate": "20260625", "pageSize": "2", "page": "2"}
+            )
+        ],
+    )
+    client = ToastClient(CONFIG)
+    out = client.get_paginated(
+        "/orders/v2/ordersBulk", {"businessDate": "20260625"}, page_size=2
+    )
+    assert [o["guid"] for o in out] == ["a", "b", "c"]

@@ -47,3 +47,22 @@ class ToastClient:
         )
         resp.raise_for_status()
         return resp.json()
+
+    def get_paginated(
+        self, path: str, params: dict | None = None, page_size: int = 100
+    ) -> list:
+        """GET a list endpoint, paging via page/pageSize until a short page."""
+        query = dict(params or {})
+        query["pageSize"] = page_size
+        results: list = []
+        page = 1
+        while True:
+            query["page"] = page
+            batch = self.get(path, params=query)
+            if not isinstance(batch, list) or not batch:
+                break
+            results.extend(batch)
+            if len(batch) < page_size:
+                break
+            page += 1
+        return results

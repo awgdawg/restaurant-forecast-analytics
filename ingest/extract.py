@@ -32,7 +32,7 @@ def extract_range(client, start: date, end: date, out_dir: Path) -> int:
     total = 0
     for day in _daterange(start, end):
         bd = day.strftime("%Y%m%d")
-        orders = client.get("/orders/v2/ordersBulk", params={"businessDate": bd})
+        orders = client.get_paginated("/orders/v2/ordersBulk", {"businessDate": bd})
         rows = [flatten_order(o) for o in orders] if isinstance(orders, list) else []
         if not rows:
             continue

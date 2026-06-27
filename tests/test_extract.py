@@ -10,7 +10,7 @@ class FakeClient:
         self._orders = orders_by_date
         self.seen = []
 
-    def get(self, path, params=None):
+    def get_paginated(self, path, params=None, page_size=100):
         self.seen.append(params["businessDate"])
         return self._orders.get(params["businessDate"], [])
 

@@ -50,3 +50,34 @@ def test_amounts_and_guests():
     assert row["tip_amount"] == 8.0
     assert row["dining_option_guid"] == "dine-in-guid"
     assert row["voided"] is False
+
+
+def test_voided_checks_are_excluded_from_sums():
+    order = {
+        "guid": "o2",
+        "businessDate": 20260626,
+        "numberOfGuests": 1,
+        "checks": [
+            {"amount": 10.0, "totalAmount": 11.0, "taxAmount": 1.0, "voided": False},
+            {"amount": 99.0, "totalAmount": 99.0, "taxAmount": 0.0, "voided": True},
+        ],
+    }
+    row = flatten_order(order)
+    assert row["num_checks"] == 2  # count keeps both
+    assert row["net_amount"] == 10.0  # sum excludes the voided check
+    assert row["total_amount"] == 11.0
+
+
+def test_multiple_live_checks_are_summed():
+    order = {
+        "guid": "o3",
+        "businessDate": 20260626,
+        "checks": [
+            {"amount": 10.0, "totalAmount": 11.0, "taxAmount": 1.0},
+            {"amount": 5.0, "totalAmount": 5.5, "taxAmount": 0.5},
+        ],
+    }
+    row = flatten_order(order)
+    assert row["net_amount"] == 15.0
+    assert row["total_amount"] == 16.5
+    assert row["num_guests"] is None  # missing optional field -> None, no crash

@@ -1,0 +1,35 @@
+{
+  "guid": "order-aaaa-0001",
+  "businessDate": 20260626,
+  "numberOfGuests": 2,
+  "openedDate": "2026-06-26T17:32:00.000+0000",
+  "closedDate": "2026-06-26T18:10:00.000+0000",
+  "source": "In Store",
+  "voided": false,
+  "deleted": false,
+  "diningOption": { "guid": "dine-in-guid", "entityType": "DiningOption" },
+  "deliveryInfo": { "address1": "123 Fake St", "city": "Kansas City", "zipCode": "64111" },
+  "checks": [
+    {
+      "guid": "check-0001",
+      "amount": 40.0,
+      "totalAmount": 43.4,
+      "taxAmount": 3.4,
+      "voided": false,
+      "deleted": false,
+      "customer": {
+        "guid": "cust-1",
+        "email": "jane@example.com",
+        "firstName": "Jane",
+        "lastName": "Doe",
+        "phone": "+18165551234"
+      },
+      "payments": [
+        { "guid": "pay-1", "amount": 43.4, "tipAmount": 8.0, "type": "CREDIT", "last4Digits": "4242" }
+      ],
+      "selections": [
+        { "guid": "sel-1", "displayName": "Burger", "quantity": 1.0, "price": 12.0 }
+      ]
+    }
+  ]
+}

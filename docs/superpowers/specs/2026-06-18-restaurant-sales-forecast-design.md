@@ -213,6 +213,21 @@ sales-summary total within tolerance (see §13).
 - **Business financials are published as real numbers.** Per the owner's decision, the
   dashboard and writeup use the restaurant's **actual** figures (no scaling or relabeling) —
   it's the owner's data and their call to share. Code, methodology, and real results are public.
+- **Customer PII — stripped from the forecast pipeline.** Toast orders include
+  `checks[].customer.{email,firstName,lastName,phone}`, `deliveryInfo.*` addresses, and
+  payment-card fields. The forecast needs none of it, so `extract.py` applies an **allowlist**
+  (businessDate, check/selection amounts, quantities, `numberOfGuests`, `diningOption`,
+  void/delete flags, timestamps) and **drops everything else before writing to disk**. An
+  allowlist (not a blocklist) ignores any new PII field Toast adds, and excludes card/PCI data
+  for free. A unit test asserts no contact keys survive → bronze, marts, and Tableau Public
+  hold **zero PII**.
+- **Using customer data later = a separate, isolated system (privacy-by-design; see §19).**
+  Three zones: (1) **public** = aggregates only; (2) **private customer analytics** keyed on a
+  **pseudonymized** id (HMAC-SHA256 + a secret salt stored outside the data) for
+  repeat/cohort/RFM/profiling — never raw contacts, never individual rows in Tableau Public;
+  (3) a **managed ESP** holds real email/name/phone + consent and does the sending. Real
+  contacts are joined only at send time and never enter the lakehouse, repo, or (non-commercial)
+  Free Edition. Email marketing must honor CAN-SPAM / applicable privacy law and verified opt-in.
 - **Employee PII (recommended guard, not a hard requirement):** labor data can include
   employee names and wages. Recommend masking/aggregating individual-employee identifiers in
   any *public* labor view (roll up to totals/roles), since that's staff personal data rather
@@ -295,6 +310,20 @@ Captured here so the architecture leaves room for them; not in scope for v1.
   only**, → BigQuery free tier → **Looker Studio**. A paid Databricks serverless micro-batch
   (~15–30 min, with a 1-min billing minimum) fits the ~$50/mo budget if ever wanted. Tableau
   Public stays the daily deliverable.
+- **Customer Data Platform & marketing** *(privacy-by-design; requested)* — repeat-customer
+  analytics, trending, profiling, and email campaigns *without* exposing PII:
+  1. **Pseudonymize** `customer.guid`/email via **HMAC-SHA256** (secret salt kept outside the
+     data) → a `customer_key` for all customer analytics.
+  2. **Private customer-analytics layer** — RFM (recency/frequency/monetary), cohorts,
+     repeat-rate, segments — keyed on `customer_key`, no raw contacts; commercial use, so a
+     private/paid store (not Free Edition).
+  3. **Managed ESP** (e.g. Mailchimp / Klaviyo / Square / Toast Marketing) is the system of
+     record for real email/name/phone + **consent** + unsubscribe handling.
+  4. **Flow:** compute a target segment (set of `customer_key`s) in analytics → resolve to the
+     ESP audience → ESP sends and manages compliance; contacts are joined only at send time.
+  5. **Guardrails:** public dashboard shows aggregates only (e.g. % repeat, avg visits); honor
+     **CAN-SPAM** / CCPA-CPRA (if applicable) + opt-in; support deletion across the analytics
+     store and the ESP.
 - **Inventory & ingredient demand forecasting** *(requested)* — the high-value extension:
   1. **Recipe / bill-of-materials (BOM) model** — enter each menu item's component
      ingredients with quantities + units (manual entry → a maintained table/seed).

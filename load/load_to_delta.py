@@ -11,17 +11,37 @@ from pathlib import Path
 import pandas as pd
 
 COLUMNS = [
-    "business_date", "order_guid", "opened_date", "closed_date", "source",
-    "dining_option_guid", "num_guests", "num_checks", "net_amount",
-    "total_amount", "tax_amount", "tip_amount", "voided", "deleted",
+    "business_date",
+    "order_guid",
+    "opened_date",
+    "closed_date",
+    "source",
+    "dining_option_guid",
+    "num_guests",
+    "num_checks",
+    "net_amount",
+    "total_amount",
+    "tax_amount",
+    "tip_amount",
+    "voided",
+    "deleted",
 ]
 
 _DDL_TYPES = {
-    "business_date": "BIGINT", "order_guid": "STRING", "opened_date": "STRING",
-    "closed_date": "STRING", "source": "STRING", "dining_option_guid": "STRING",
-    "num_guests": "INT", "num_checks": "INT", "net_amount": "DOUBLE",
-    "total_amount": "DOUBLE", "tax_amount": "DOUBLE", "tip_amount": "DOUBLE",
-    "voided": "BOOLEAN", "deleted": "BOOLEAN",
+    "business_date": "BIGINT",
+    "order_guid": "STRING",
+    "opened_date": "STRING",
+    "closed_date": "STRING",
+    "source": "STRING",
+    "dining_option_guid": "STRING",
+    "num_guests": "INT",
+    "num_checks": "INT",
+    "net_amount": "DOUBLE",
+    "total_amount": "DOUBLE",
+    "tax_amount": "DOUBLE",
+    "tip_amount": "DOUBLE",
+    "voided": "BOOLEAN",
+    "deleted": "BOOLEAN",
 }
 
 
@@ -30,10 +50,14 @@ def bronze_ddl(table: str) -> str:
     return f"CREATE TABLE IF NOT EXISTS {table} (\n  {cols}\n) USING DELTA"
 
 
-def insert_sql(table: str) -> str:
-    placeholders = ", ".join(["?"] * len(COLUMNS))
+INSERT_CHUNK = 500
+
+
+def insert_sql(table: str, n_rows: int = 1) -> str:
+    row = "(" + ", ".join(["?"] * len(COLUMNS)) + ")"
+    values = ", ".join([row] * n_rows)
     cols = ", ".join(COLUMNS)
-    return f"INSERT INTO {table} ({cols}) VALUES ({placeholders})"
+    return f"INSERT INTO {table} ({cols}) VALUES {values}"
 
 
 def rows_from_df(df: pd.DataFrame) -> list[tuple]:
@@ -41,9 +65,14 @@ def rows_from_df(df: pd.DataFrame) -> list[tuple]:
 
 
 def load_day(cursor, table: str, business_date: int, df: pd.DataFrame) -> int:
+    """Replace a day's rows. Inserts in chunks of one multi-row statement each
+    (far fewer round-trips than row-by-row executemany — essential for backfills)."""
     cursor.execute(f"DELETE FROM {table} WHERE business_date = ?", [int(business_date)])
-    if len(df):
-        cursor.executemany(insert_sql(table), rows_from_df(df))
+    rows = rows_from_df(df)
+    for start in range(0, len(rows), INSERT_CHUNK):
+        chunk = rows[start : start + INSERT_CHUNK]
+        params = [value for row in chunk for value in row]
+        cursor.execute(insert_sql(table, len(chunk)), params)
     return len(df)
 
 

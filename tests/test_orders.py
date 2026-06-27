@@ -20,6 +20,7 @@ EXPECTED_KEYS = {
     "total_amount",
     "tax_amount",
     "tip_amount",
+    "deferred_amount",
     "voided",
     "deleted",
 }
@@ -81,3 +82,10 @@ def test_multiple_live_checks_are_summed():
     assert row["net_amount"] == 15.0
     assert row["total_amount"] == 16.5
     assert row["num_guests"] is None  # missing optional field -> None, no crash
+
+
+def test_deferred_amount_sums_deferred_selections():
+    row = flatten_order(FIXTURE)
+    assert row["deferred_amount"] == 25.0
+    # net_amount is still the raw check amount; the subtraction happens in dbt
+    assert row["net_amount"] == 40.0

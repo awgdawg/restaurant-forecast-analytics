@@ -28,7 +28,8 @@
         { "guid": "pay-1", "amount": 43.4, "tipAmount": 8.0, "type": "CREDIT", "last4Digits": "4242" }
       ],
       "selections": [
-        { "guid": "sel-1", "displayName": "Burger", "quantity": 1.0, "price": 12.0 }
+        { "guid": "sel-1", "displayName": "Burger", "quantity": 1.0, "price": 12.0 },
+        { "guid": "sel-gc", "displayName": "Gift Card", "price": 25.0, "deferred": true }
       ]
     }
   ]

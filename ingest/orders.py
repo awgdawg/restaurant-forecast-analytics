@@ -11,6 +11,19 @@ def _is_live(node: dict) -> bool:
     return not node.get("voided", False) and not node.get("deleted", False)
 
 
+def _deferred_amount(live_checks: list[dict]) -> float:
+    """Sum prices of deferred (e.g. gift-card) selections — excluded from net sales."""
+    return round(
+        sum(
+            (s.get("price") or 0.0)
+            for c in live_checks
+            for s in (c.get("selections") or [])
+            if s.get("deferred") and not s.get("voided")
+        ),
+        4,
+    )
+
+
 def flatten_order(order: dict) -> dict:
     """Return one order-grain row. Amounts are summed across non-voided checks."""
     checks = order.get("checks") or []
@@ -43,6 +56,7 @@ def flatten_order(order: dict) -> dict:
         "total_amount": _sum("totalAmount"),
         "tax_amount": _sum("taxAmount"),
         "tip_amount": tip_amount,
+        "deferred_amount": _deferred_amount(live_checks),
         "voided": bool(order.get("voided", False)),
         "deleted": bool(order.get("deleted", False)),
     }

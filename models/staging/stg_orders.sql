@@ -13,6 +13,7 @@ select
     net_amount,
     total_amount,
     tax_amount,
-    tip_amount
+    tip_amount,
+    deferred_amount
 from source
 where not voided and not deleted

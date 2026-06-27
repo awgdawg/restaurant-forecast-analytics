@@ -1,4 +1,5 @@
 import pytest
+import requests
 import responses
 
 from ingest.config import ToastConfig
@@ -99,3 +100,83 @@ def test_get_paginated_follows_pages_until_short_page():
         "/orders/v2/ordersBulk", {"businessDate": "20260625"}, page_size=2
     )
     assert [o["guid"] for o in out] == ["a", "b", "c"]
+
+
+ORDERS_URL = "https://ws-api.toasttab.com/orders/v2/ordersBulk"
+
+
+@responses.activate
+def test_get_retries_on_5xx_then_succeeds(monkeypatch):
+    monkeypatch.setattr("ingest.toast_client.time.sleep", lambda s: None)
+    responses.add(
+        responses.POST, LOGIN_URL, json={"token": {"accessToken": "abc"}}, status=200
+    )
+    responses.add(responses.GET, ORDERS_URL, json={"err": "boom"}, status=500)
+    responses.add(responses.GET, ORDERS_URL, json=[{"guid": "a"}], status=200)
+
+    client = ToastClient(CONFIG)
+    body = client.get("/orders/v2/ordersBulk", params={"businessDate": "20260625"})
+
+    assert body == [{"guid": "a"}]
+    get_calls = [c for c in responses.calls if c.request.method == "GET"]
+    assert len(get_calls) == 2  # one failure, one retry that succeeds
+
+
+@responses.activate
+def test_get_gives_up_after_max_retries(monkeypatch):
+    monkeypatch.setattr("ingest.toast_client.time.sleep", lambda s: None)
+    responses.add(
+        responses.POST, LOGIN_URL, json={"token": {"accessToken": "abc"}}, status=200
+    )
+    responses.add(responses.GET, ORDERS_URL, json={"err": "boom"}, status=503)
+
+    client = ToastClient(CONFIG, max_retries=3)
+    with pytest.raises(requests.exceptions.HTTPError):
+        client.get("/orders/v2/ordersBulk")
+
+    get_calls = [c for c in responses.calls if c.request.method == "GET"]
+    assert len(get_calls) == 4  # 1 initial attempt + 3 retries
+
+
+@responses.activate
+def test_get_honors_retry_after_header(monkeypatch):
+    slept = []
+    monkeypatch.setattr("ingest.toast_client.time.sleep", lambda s: slept.append(s))
+    responses.add(
+        responses.POST, LOGIN_URL, json={"token": {"accessToken": "abc"}}, status=200
+    )
+    responses.add(
+        responses.GET,
+        ORDERS_URL,
+        json={"err": "rate"},
+        status=429,
+        headers={"Retry-After": "2"},
+    )
+    responses.add(responses.GET, ORDERS_URL, json=[{"guid": "a"}], status=200)
+
+    client = ToastClient(CONFIG)
+    client.get("/orders/v2/ordersBulk")
+
+    assert slept == [2.0]  # waited exactly what the server asked for
+
+
+@responses.activate
+def test_get_reauths_once_on_401(monkeypatch):
+    monkeypatch.setattr("ingest.toast_client.time.sleep", lambda s: None)
+    responses.add(
+        responses.POST, LOGIN_URL, json={"token": {"accessToken": "first"}}, status=200
+    )
+    responses.add(
+        responses.POST, LOGIN_URL, json={"token": {"accessToken": "second"}}, status=200
+    )
+    responses.add(responses.GET, ORDERS_URL, json={"err": "unauth"}, status=401)
+    responses.add(responses.GET, ORDERS_URL, json=[{"guid": "x"}], status=200)
+
+    client = ToastClient(CONFIG)
+    body = client.get("/orders/v2/ordersBulk")
+
+    assert body == [{"guid": "x"}]
+    post_calls = [c for c in responses.calls if c.request.method == "POST"]
+    assert len(post_calls) == 2  # re-authenticated once
+    success_get = [c for c in responses.calls if c.request.method == "GET"][-1]
+    assert success_get.request.headers["Authorization"] == "Bearer second"

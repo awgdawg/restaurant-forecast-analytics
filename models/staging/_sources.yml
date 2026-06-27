@@ -1,0 +1,8 @@
+version: 2
+
+sources:
+  - name: raw
+    database: "{{ env_var('DBX_CATALOG', 'workspace') }}"
+    schema: "{{ env_var('DBX_SCHEMA', 'default') }}"
+    tables:
+      - name: bronze_orders

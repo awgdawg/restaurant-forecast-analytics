@@ -1,0 +1,15 @@
+version: 2
+
+models:
+  - name: stg_orders
+    columns:
+      - name: order_guid
+        data_tests: [not_null, unique]
+      - name: business_date
+        data_tests: [not_null]
+  - name: fct_daily_sales
+    columns:
+      - name: business_date
+        data_tests: [not_null, unique]
+      - name: order_count
+        data_tests: [not_null]

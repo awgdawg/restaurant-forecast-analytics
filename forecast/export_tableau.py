@@ -12,15 +12,12 @@ def build_forecast_vs_actuals(
 ) -> pd.DataFrame:
     """Tidy history+forecast frame for the dashboard line chart."""
     hist = series.rename(columns={"ds": "date", "y": "net_sales_actual"}).copy()
-    hist["yhat"] = pd.NA
-    hist["yhat_lower"] = pd.NA
-    hist["yhat_upper"] = pd.NA
     hist["is_forecast"] = False
-
     fc = forecast.rename(columns={"ds": "date"}).copy()
-    fc["net_sales_actual"] = pd.NA
     fc["is_forecast"] = True
 
+    # concat takes the column union; each frame's missing columns fill with NaN.
+    # Not pre-adding all-NA placeholder columns avoids pandas' concat FutureWarning.
     out = pd.concat([hist, fc], ignore_index=True)
     out["model"] = model_name
     return out[COLUMNS]

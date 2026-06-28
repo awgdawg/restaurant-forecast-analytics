@@ -21,6 +21,8 @@ raw/
 *.twbx
 # allow committed dbt seeds (small / sample)
 !seeds/**/*.csv
+# allow committed forecast exports (aggregates only — back the Tableau dashboard)
+!exports/*.csv
 
 # ── Python ──
 __pycache__/

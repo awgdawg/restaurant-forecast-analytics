@@ -4,6 +4,7 @@ Usage:
     python -m ingest.extract                       # backfill: auto-detect start -> yesterday
     python -m ingest.extract --start 2026-06-20 --end 2026-06-26
     python -m ingest.extract --start 2026-06-20 --end 2026-06-26 --overwrite
+    python -m ingest.extract --refresh-days 3        # nightly: re-pull the last 3 days
 """
 
 from __future__ import annotations
@@ -127,14 +128,26 @@ def main() -> None:
     parser.add_argument(
         "--overwrite", action="store_true", help="re-fetch days already on disk"
     )
+    parser.add_argument(
+        "--out-dir", default="data/raw/orders",
+        help="output root (local path or /Volumes/... in-cloud)",
+    )
+    parser.add_argument(
+        "--refresh-days", type=int, default=0,
+        help="re-pull the last N days with overwrite (captures post-close edits); "
+        "overrides --start and auto-detect",
+    )
     args = parser.parse_args()
 
     load_dotenv()
     client = ToastClient(load_toast_config())
-    out_dir = Path("data/raw/orders")
+    out_dir = Path(args.out_dir)
 
     end = date.fromisoformat(args.end) if args.end else date.today() - timedelta(days=1)
-    if args.start:
+    overwrite = args.overwrite or args.refresh_days > 0
+    if args.refresh_days:
+        start = end - timedelta(days=args.refresh_days - 1)
+    elif args.start:
         start = date.fromisoformat(args.start)
     else:
         print("Auto-detecting earliest business date with orders...")
@@ -145,7 +158,7 @@ def main() -> None:
 
     print(f"Extracting {start.isoformat()} -> {end.isoformat()} into {out_dir}/")
     total = extract_range(
-        client, start, end, out_dir, overwrite=args.overwrite, log=print
+        client, start, end, out_dir, overwrite=overwrite, log=print
     )
     print(f"Wrote {total} order rows under {out_dir}")
 

@@ -101,7 +101,11 @@ in `databricks.yml` (Asset Bundle) and deployed with `databricks bundle deploy`.
 - **AI/BI dashboard** (new) — a Lakeview dashboard over `forecast_vs_actuals` and `model_metrics`;
   built in-workspace (optionally captured as a bundle resource).
 
-## 7. Data model additions (marts)
+## 7. Data model additions
+
+The two tables are **written by the forecast step into the default schema** (alongside
+`bronze_orders`) and declared to dbt as a **source** — dbt owns only what it builds. The
+marts-grade serving surface is the `forecast_vs_actuals` **view**.
 
 - **`forecast_daily_sales`** — grain: `forecast_date`. Columns: `forecast_date` (INT YYYYMMDD),
   `yhat`, `yhat_lower`, `yhat_upper` (DOUBLE), `model` (STRING), `run_ts` (TIMESTAMP). Overwritten
@@ -180,8 +184,9 @@ data → realistically **low-tens of $/mo**. AI/BI dashboards, Google Sheets, an
 
 ## 14. Success criteria (verifiable)
 
-1. `forecast_daily_sales`, `model_metrics`, and the `forecast_vs_actuals` view exist in the marts and
-   the forecast run populates them (provable on Free in Phase 1).
+1. `forecast_daily_sales` and `model_metrics` exist in the lakehouse (default schema, declared as a
+   dbt source), the `forecast_vs_actuals` view exists in marts, and the forecast run populates them
+   (provable on Free in Phase 1).
 2. The Asset Bundle `validate`s; on paid it `deploy`s and the nightly Workflow completes end-to-end
    (extract → publish) in the cloud with no local steps.
 3. The lakehouse advances automatically each night (freshness ≤ 1 day on open days).

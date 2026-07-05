@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pyarrow.parquet as pq
 
 COLUMNS = [
     "business_date",
@@ -78,13 +79,57 @@ def load_day(cursor, table: str, business_date: int, df: pd.DataFrame) -> int:
     return len(df)
 
 
-def load_parquet_root(conn, root: str | Path, table: str = "bronze_orders") -> int:
+def parquet_day_counts(root: str | Path) -> dict[int, int]:
+    """business_date -> row count on disk, via Parquet metadata (no data read)."""
+    return {
+        int(p.name.split("=")[1]): pq.read_metadata(p / "orders.parquet").num_rows
+        for p in sorted(Path(root).glob("business_date=*"))
+    }
+
+
+def bronze_day_counts(cursor, table: str) -> dict[int, int]:
+    cursor.execute(f"SELECT business_date, COUNT(*) FROM {table} GROUP BY business_date")
+    return {int(bd): int(n) for bd, n in cursor.fetchall()}
+
+
+def days_needing_load(
+    parquet_counts: dict[int, int], bronze_counts: dict[int, int], window: int = 0
+) -> list[int]:
+    """Days on disk that bronze is missing or holds with a different row count
+    (an interrupted DELETE+INSERT leaves a partial day; the mismatch catches it).
+    window > 0 additionally forces the most recent `window` days on disk, since
+    post-close edits (refunds, tip adjustments) can change values without
+    changing row counts."""
+    stale = {bd for bd, n in parquet_counts.items() if bronze_counts.get(bd) != n}
+    if window:
+        stale.update(sorted(parquet_counts)[-window:])
+    return sorted(stale)
+
+
+def load_parquet_root(
+    conn,
+    root: str | Path,
+    table: str = "bronze_orders",
+    full_refresh: bool = False,
+    window: int = 0,
+    log=None,
+) -> int:
+    emit = log or (lambda _msg: None)
     cursor = conn.cursor()
     cursor.execute(bronze_ddl(table))
+    on_disk = parquet_day_counts(root)
+    todo = (
+        sorted(on_disk)
+        if full_refresh
+        else days_needing_load(on_disk, bronze_day_counts(cursor, table), window)
+    )
+    emit(f"{len(on_disk)} days on disk; loading {len(todo)}")
     total = 0
-    for part in sorted(Path(root).glob("business_date=*")):
-        business_date = int(part.name.split("=")[1])
-        df = pd.read_parquet(part / "orders.parquet")
+    for business_date in todo:
+        df = pd.read_parquet(
+            Path(root) / f"business_date={business_date}" / "orders.parquet"
+        )
         total += load_day(cursor, table, business_date, df)
+        emit(f"{business_date}: {len(df)} rows")
     cursor.close()
     return total

@@ -6,3 +6,9 @@ sources:
     schema: "{{ env_var('DBX_SCHEMA', 'default') }}"
     tables:
       - name: bronze_orders
+  - name: forecast
+    database: "{{ env_var('DBX_CATALOG', 'workspace') }}"
+    schema: "{{ env_var('DBX_SCHEMA', 'default') }}"
+    tables:
+      - name: forecast_daily_sales
+      - name: model_metrics

@@ -25,7 +25,7 @@ def main() -> None:
         help="Parquet root (local path or /Volumes/... in-cloud)",
     )
     parser.add_argument(
-        "--full-refresh", action="store_true", help="reload every day on disk"
+        "--full-refresh", action="store_true", help="reload every day on disk (ignores --window)"
     )
     parser.add_argument(
         "--window",

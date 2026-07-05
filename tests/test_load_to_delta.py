@@ -74,6 +74,8 @@ def test_days_needing_load_window_forces_recent_days():
     # a trailing window still reloads the most recent days: post-close edits
     # (refunds, tip adjustments) can change values without changing counts
     assert days_needing_load(parquet, bronze, window=2) == [20260627, 20260628]
+    # window larger than the number of days on disk: loads everything, no error
+    assert days_needing_load(parquet, bronze, window=99) == sorted(parquet)
 
 
 def test_parquet_day_counts_reads_metadata(tmp_path):

@@ -6,6 +6,7 @@ Usage:  python -m forecast.run_forecast [--horizon 14] [--folds 8]
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
@@ -15,6 +16,7 @@ from forecast.export_tableau import build_forecast_vs_actuals, build_metrics_fra
 from forecast.models import seasonal_naive
 from forecast.prophet_model import prophet_forecast
 from load.databricks import connect
+from load.load_forecast import write_forecast, write_metrics
 
 
 def main() -> None:
@@ -57,6 +59,17 @@ def main() -> None:
     fva = build_forecast_vs_actuals(series, forecast, model_name=winner)
     write_exports(fva, build_metrics_frame(metrics))
     print(f"Wrote exports/forecast_vs_actuals.csv ({len(fva)} rows) + exports/backtest_metrics.csv")
+
+    run_ts = datetime.now(timezone.utc)
+    conn = connect()
+    try:
+        cur = conn.cursor()
+        n_fc = write_forecast(cur, forecast, winner, run_ts)
+        n_m = write_metrics(cur, metrics, args.horizon, args.folds, run_ts)
+        cur.close()
+    finally:
+        conn.close()
+    print(f"Wrote {n_fc} rows to forecast_daily_sales, {n_m} rows to model_metrics")
 
 
 if __name__ == "__main__":

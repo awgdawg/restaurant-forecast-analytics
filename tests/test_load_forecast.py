@@ -96,3 +96,14 @@ def test_write_metrics_appends_without_delete():
     sqls = [s for s, _ in cur.calls]
     assert not any(s.startswith("DELETE") for s in sqls)  # append-only
     assert cur.calls[-1][0].count("?") == len(METRICS_COLUMNS)
+
+
+def test_writers_no_op_on_empty_input():
+    cur = FakeCursor()
+
+    n_fc = write_forecast(cur, pd.DataFrame(columns=["ds", "yhat"]), "prophet", RUN_TS)
+    n_m = write_metrics(cur, {}, horizon=14, n_folds=8, run_ts=RUN_TS)
+
+    assert n_fc == 0 and n_m == 0
+    # DDL may run, but no INSERT (and no malformed 'VALUES ' SQL) is issued
+    assert not any(s.startswith("INSERT") for s, _ in cur.calls)

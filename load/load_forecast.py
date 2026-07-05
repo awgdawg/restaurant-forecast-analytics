@@ -83,6 +83,8 @@ def write_forecast(
     cursor.execute(forecast_ddl(table))
     cursor.execute(f"DELETE FROM {table}")
     rows = forecast_rows(fc, model, run_ts)
+    if not rows:
+        return 0
     params = [v for row in rows for v in row]
     cursor.execute(_insert_sql(table, FORECAST_COLUMNS, len(rows)), params)
     return len(rows)
@@ -95,6 +97,8 @@ def write_metrics(
     """Append this run's backtest metrics (keeps history across runs)."""
     cursor.execute(metrics_ddl(table))
     rows = metrics_rows(metrics_by_model, horizon, n_folds, run_ts)
+    if not rows:
+        return 0
     params = [v for row in rows for v in row]
     cursor.execute(_insert_sql(table, METRICS_COLUMNS, len(rows)), params)
     return len(rows)

@@ -138,6 +138,8 @@ def main() -> None:
         "overrides --start and auto-detect",
     )
     args = parser.parse_args()
+    if args.refresh_days < 0:
+        parser.error("--refresh-days must be >= 0")
 
     load_dotenv()
     client = ToastClient(load_toast_config())

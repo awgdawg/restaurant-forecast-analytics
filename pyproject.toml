@@ -9,6 +9,7 @@ description = "Toast POS -> Databricks + dbt -> Prophet sales forecasting pipeli
 requires-python = ">=3.10"
 dependencies = [
     "requests>=2.32",
+    "numpy>=1.26",
     "pandas>=2.2",
     "pyarrow>=17",
     "python-dotenv>=1.0",

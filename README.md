@@ -24,6 +24,16 @@ low-volume-day data — in **[`docs/forecast-writeup.md`](docs/forecast-writeup.
 .\.venv\Scripts\python.exe -m forecast.run_forecast   # backtest, forecast 14 days, export CSVs
 ```
 
+## Cloud pipeline
+
+The forecast now lands in the lakehouse itself — `forecast_daily_sales` + `model_metrics`
+Delta tables and a `forecast_vs_actuals` dbt view — and the whole nightly pipeline
+(extract → load → dbt → forecast) is defined as code in a Databricks Asset Bundle
+([`databricks.yml`](databricks.yml)). See the
+[cloud design spec](docs/superpowers/specs/2026-06-29-databricks-cloud-pipeline-design.md):
+Phase 2 deploys it to a paid workspace with in-cloud extraction, a live AI/BI dashboard,
+and a daily-refreshing Tableau Public feed.
+
 ## Setup
 
 ```powershell
@@ -36,9 +46,10 @@ copy .env.example .env   # then fill in Toast + Databricks credentials
 ## Layout
 
 - `ingest/` — local Python: Toast API auth + extraction (retry, auto-detect, resumable backfill)
-- `load/` — raw Parquet → Databricks Delta bronze
+- `load/` — raw Parquet → Databricks Delta bronze (incremental by default; `--full-refresh` to reload) + forecast/metrics Delta writers
 - `models/` — dbt (staging → marts) on Databricks
 - `forecast/` — baseline + Prophet, rolling-origin backtest, Tableau exports
 - `exports/` — forecast-vs-actuals + metrics CSVs (Tableau Public data source)
+- `databricks.yml` — Asset Bundle: the nightly extract → load → dbt → forecast Workflow as code (deploys to a paid workspace; schedule ships paused)
 - `tests/` — pytest
 - `docs/` — spec, plans, forecast writeup, captured API shapes

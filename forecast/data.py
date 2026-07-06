@@ -17,7 +17,9 @@ def clean_daily_series(raw: pd.DataFrame) -> pd.DataFrame:
     """raw: cols business_date (int YYYYMMDD), net_sales (float).
     Returns continuous daily df[ds, y] with missing (closed) days filled 0.0."""
     df = raw.copy()
-    df["ds"] = pd.to_datetime(df["business_date"].astype(int).astype(str), format="%Y%m%d")
+    df["ds"] = pd.to_datetime(
+        df["business_date"].astype(int).astype(str), format="%Y%m%d"
+    )
     df = df[["ds", "net_sales"]].rename(columns={"net_sales": "y"}).sort_values("ds")
     full = pd.date_range(df["ds"].min(), df["ds"].max(), freq="D")
     df = df.set_index("ds").reindex(full).rename_axis("ds").reset_index()
@@ -33,4 +35,18 @@ def load_daily_series(conn, table: str | None = None) -> pd.DataFrame:
     rows = cur.fetchall()
     cur.close()
     raw = pd.DataFrame(rows, columns=["business_date", "net_sales"])
+    return clean_daily_series(raw)
+
+
+def load_daily_series_spark(spark, table: str | None = None) -> pd.DataFrame:
+    """Spark-native twin of load_daily_series, for in-cloud runs.
+
+    Reads the daily-sales mart through the job's active Spark session (the
+    serverless egress allowlist blocks the SQL connector) and cleans the result
+    into the same continuous [ds, y] series load_daily_series produces.
+    """
+    table = table or mart_table()
+    raw = spark.sql(
+        f"select business_date, net_sales from {table} order by business_date"
+    ).toPandas()
     return clean_daily_series(raw)

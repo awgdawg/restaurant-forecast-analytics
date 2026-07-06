@@ -11,12 +11,17 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 from forecast.backtest import rolling_origin_backtest, summarize
-from forecast.data import load_daily_series
-from forecast.export_tableau import build_forecast_vs_actuals, build_metrics_frame, write_exports
+from forecast.data import load_daily_series, load_daily_series_spark
+from forecast.export_tableau import (
+    build_forecast_vs_actuals,
+    build_metrics_frame,
+    write_exports,
+)
 from forecast.models import seasonal_naive
 from forecast.prophet_model import prophet_forecast
 from load.databricks import connect
 from load.load_forecast import write_forecast, write_metrics
+from load.spark_io import active_spark, spark_write_forecast, spark_write_metrics
 
 
 def main() -> None:
@@ -26,17 +31,34 @@ def main() -> None:
     args = parser.parse_args()
 
     load_dotenv()
-    conn = connect()
-    try:
-        series = load_daily_series(conn)
-    finally:
-        conn.close()
-    print(f"Loaded {len(series)} days: {series['ds'].min().date()} -> {series['ds'].max().date()}")
 
-    models = {"baseline": seasonal_naive, "prophet": lambda tr, h: prophet_forecast(tr, h)}
+    # Detect the cloud seam once. On serverless job compute an active Spark
+    # session exists, so reads and writes go through it (the egress allowlist
+    # blocks the SQL connector) and no CSVs are written. Locally there is no
+    # pyspark, active_spark() is None, and behaviour is byte-identical to before.
+    spark = active_spark()
+
+    if spark is not None:
+        series = load_daily_series_spark(spark)
+    else:
+        conn = connect()
+        try:
+            series = load_daily_series(conn)
+        finally:
+            conn.close()
+    print(
+        f"Loaded {len(series)} days: {series['ds'].min().date()} -> {series['ds'].max().date()}"
+    )
+
+    models = {
+        "baseline": seasonal_naive,
+        "prophet": lambda tr, h: prophet_forecast(tr, h),
+    }
     metrics = {}
     for name, fn in models.items():
-        bt = rolling_origin_backtest(series, fn, horizon=args.horizon, n_folds=args.folds)
+        bt = rolling_origin_backtest(
+            series, fn, horizon=args.horizon, n_folds=args.folds
+        )
         metrics[name] = summarize(bt)
         m = metrics[name]
         print(
@@ -56,19 +78,29 @@ def main() -> None:
         if winner == "prophet"
         else seasonal_naive(series, args.horizon)
     )
-    fva = build_forecast_vs_actuals(series, forecast, model_name=winner)
-    write_exports(fva, build_metrics_frame(metrics))
-    print(f"Wrote exports/forecast_vs_actuals.csv ({len(fva)} rows) + exports/backtest_metrics.csv")
+    # CSV exports are a local-only convenience (feeding Tableau Public). In-cloud
+    # there is no writable local filesystem to publish from, so skip them.
+    if spark is None:
+        fva = build_forecast_vs_actuals(series, forecast, model_name=winner)
+        write_exports(fva, build_metrics_frame(metrics))
+        print(
+            f"Wrote exports/forecast_vs_actuals.csv ({len(fva)} rows) "
+            "+ exports/backtest_metrics.csv"
+        )
 
     run_ts = datetime.now(timezone.utc)
-    conn = connect()
-    try:
-        cur = conn.cursor()
-        n_fc = write_forecast(cur, forecast, winner, run_ts)
-        n_m = write_metrics(cur, metrics, args.horizon, args.folds, run_ts)
-        cur.close()
-    finally:
-        conn.close()
+    if spark is not None:
+        n_fc = spark_write_forecast(spark, forecast, winner, run_ts)
+        n_m = spark_write_metrics(spark, metrics, args.horizon, args.folds, run_ts)
+    else:
+        conn = connect()
+        try:
+            cur = conn.cursor()
+            n_fc = write_forecast(cur, forecast, winner, run_ts)
+            n_m = write_metrics(cur, metrics, args.horizon, args.folds, run_ts)
+            cur.close()
+        finally:
+            conn.close()
     print(f"Wrote {n_fc} rows to forecast_daily_sales, {n_m} rows to model_metrics")
 
 

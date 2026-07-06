@@ -12,6 +12,12 @@ load/load_to_delta.py so the two paths stay behaviourally identical.
 
 from __future__ import annotations
 
+from load.load_forecast import (
+    FORECAST_TABLE,
+    METRICS_TABLE,
+    forecast_rows,
+    metrics_rows,
+)
 from load.load_to_delta import COLUMNS
 
 
@@ -55,3 +61,102 @@ def spark_load_day(spark, table: str, business_date, parquet_path: str) -> int:
         "replaceWhere", f"business_date = {int(business_date)}"
     ).saveAsTable(table)
     return n
+
+
+# --- schema-pinned forecast/metrics writers ----------------------------------
+#
+# Explicit schemas are LOAD-BEARING here. spark.createDataFrame on forecast_rows
+# output CANNOT infer types when the baseline model wins: its band columns
+# (yhat_lower/yhat_upper) are all None, and Spark has no type to infer from
+# an all-None column. So every write pins an explicit schema.
+#
+# The schema builders below do the pyspark import lazily *inside* the function
+# (same pattern as active_spark) so importing this module never needs pyspark.
+# The writers obtain their schema by calling these helpers -- that indirection
+# is the seam local, pyspark-free tests monkeypatch (they swap in a sentinel
+# schema and assert the writer forwarded it to createDataFrame). See
+# tests/test_spark_io.py.
+
+
+def _forecast_schema():
+    """Explicit StructType for forecast_daily_sales, mirroring
+    load/load_forecast.py::_FORECAST_TYPES. Band fields are nullable (baseline
+    forecasts carry no band -> all-None columns)."""
+    from pyspark.sql.types import (
+        DoubleType,
+        LongType,
+        StringType,
+        StructField,
+        StructType,
+        TimestampType,
+    )
+
+    return StructType(
+        [
+            StructField("forecast_date", LongType(), nullable=False),
+            StructField("yhat", DoubleType(), nullable=False),
+            StructField("yhat_lower", DoubleType(), nullable=True),
+            StructField("yhat_upper", DoubleType(), nullable=True),
+            StructField("model", StringType(), nullable=False),
+            StructField("run_ts", TimestampType(), nullable=False),
+        ]
+    )
+
+
+def _metrics_schema():
+    """Explicit StructType for model_metrics, mirroring
+    load/load_forecast.py::_METRICS_TYPES. horizon/n_folds are Python ints ->
+    LongType (Spark's default integer width, avoids overflow surprises)."""
+    from pyspark.sql.types import (
+        DoubleType,
+        LongType,
+        StringType,
+        StructField,
+        StructType,
+        TimestampType,
+    )
+
+    return StructType(
+        [
+            StructField("model", StringType(), nullable=False),
+            StructField("mae", DoubleType(), nullable=True),
+            StructField("rmse", DoubleType(), nullable=True),
+            StructField("mape", DoubleType(), nullable=True),
+            StructField("wape", DoubleType(), nullable=True),
+            StructField("horizon", LongType(), nullable=False),
+            StructField("n_folds", LongType(), nullable=False),
+            StructField("run_ts", TimestampType(), nullable=False),
+        ]
+    )
+
+
+def spark_write_forecast(spark, fc, model, run_ts, table=FORECAST_TABLE) -> int:
+    """Latest-only write of this run's horizon to forecast_daily_sales.
+
+    Mirrors load_forecast.write_forecast: rows come from the same pure
+    forecast_rows() builder; the overwrite is the Delta equivalent of that
+    path's DELETE-all + INSERT. Empty rows -> no write (matches the connector
+    writer's guard). Returns the row count written.
+    """
+    rows = forecast_rows(fc, model, run_ts)
+    if not rows:
+        return 0
+    df = spark.createDataFrame(rows, _forecast_schema())
+    df.write.format("delta").mode("overwrite").saveAsTable(table)
+    return len(rows)
+
+
+def spark_write_metrics(
+    spark, metrics_by_model, horizon, n_folds, run_ts, table=METRICS_TABLE
+) -> int:
+    """Append this run's backtest metrics to model_metrics (keeps history).
+
+    Mirrors load_forecast.write_metrics: rows from the same pure metrics_rows()
+    builder, append mode. Empty -> no write. Returns the row count written.
+    """
+    rows = metrics_rows(metrics_by_model, horizon, n_folds, run_ts)
+    if not rows:
+        return 0
+    df = spark.createDataFrame(rows, _metrics_schema())
+    df.write.format("delta").mode("append").saveAsTable(table)
+    return len(rows)

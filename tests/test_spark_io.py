@@ -2,7 +2,7 @@
 
 These fakes mirror only the slice of the Spark DataFrame API the module touches:
 - spark.sql(q) -> FakeDF whose .collect() yields preset Rows
-- spark.read.parquet(path) -> FakeDF with .select(*cols), .count(), and a
+- spark.read.parquet(path) -> FakeDF with .selectExpr(*exprs), .count(), and a
   .write chain (.format/.mode/.option/.saveAsTable) that records its args.
 
 Row for day-counts behaves like a 2-tuple, matching the `for bd, n in ...`
@@ -14,9 +14,15 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pandas as pd
+import pytest
 
-from load.load_forecast import FORECAST_TABLE, METRICS_TABLE
-from load.load_to_delta import COLUMNS
+from load.load_forecast import (
+    FORECAST_TABLE,
+    METRICS_TABLE,
+    forecast_rows,
+    metrics_rows,
+)
+from load.load_to_delta import _DDL_TYPES, COLUMNS
 from load.spark_io import (
     active_spark,
     spark_day_counts,
@@ -53,14 +59,14 @@ class FakeDF:
     def __init__(self, rows=None, count=0):
         self._rows = rows or []
         self._count = count
-        self.selected = None
+        self.select_exprs = None
         self.write = FakeWrite()
 
     def collect(self):
         return self._rows
 
-    def select(self, *cols):
-        self.selected = list(cols)
+    def selectExpr(self, *exprs):
+        self.select_exprs = list(exprs)
         return self
 
     def count(self):
@@ -125,7 +131,12 @@ def test_spark_day_counts_coerces_to_int():
     assert spark_day_counts(spark, "bronze_orders") == {20260627: 179}
 
 
-def test_spark_load_day_projects_columns_writes_and_returns_count():
+def test_spark_load_day_casts_columns_writes_and_returns_count():
+    """The projection must CAST every column to its bronze DDL type. pandas
+    writes nullable ints as int64/double in parquet, which Spark reads as
+    Long/Double; without the cast, saveAsTable fails with
+    DELTA_FAILED_TO_MERGE_FIELDS against the table's INT columns (the SQL
+    connector coerced server-side, so this only bites the Spark path)."""
     read_df = FakeDF(count=42)
     spark = FakeSpark(read_df=read_df)
 
@@ -138,8 +149,15 @@ def test_spark_load_day_projects_columns_writes_and_returns_count():
 
     # read the right parquet path
     assert spark.read.parquet_path == "/Volumes/x/business_date=20260627/orders.parquet"
-    # projected to the exact bronze column order (by-name resolution)
-    assert read_df.selected == COLUMNS
+    # cast-projected: one CAST per column, to the exact DDL type, by name
+    expected_exprs = [f"CAST({c} AS {t}) AS {c}" for c, t in _DDL_TYPES.items()]
+    assert read_df.select_exprs == expected_exprs
+    # the type that broke the live run is cast explicitly
+    assert "CAST(num_guests AS INT) AS num_guests" in read_df.select_exprs
+    assert "CAST(business_date AS BIGINT) AS business_date" in read_df.select_exprs
+    # _DDL_TYPES iteration preserves the bronze column order, so the projected
+    # output column order matches COLUMNS exactly
+    assert [e.rsplit(" AS ", 1)[1] for e in read_df.select_exprs] == COLUMNS
     # returns the count taken BEFORE the write consumed the plan
     assert n == 42
     # wrote delta / overwrite with the exact replaceWhere predicate + table
@@ -285,3 +303,40 @@ def test_spark_write_metrics_empty_returns_zero_no_create(monkeypatch):
 
     assert n == 0
     assert spark.created == []
+
+
+def test_real_spark_schemas_bind_baseline_rows():
+    """Pyspark-gated smoke test: SKIPS locally (pyspark is absent from the
+    venv by design). In any pyspark-bearing environment (in-cloud, future CI)
+    it exercises the REAL schema builders against a real createDataFrame --
+    including the all-None-band baseline shape that Spark cannot infer types
+    for, and the IntegerType horizon/n_folds that must match the live
+    model_metrics table's INT columns."""
+    pytest.importorskip("pyspark")
+    from pyspark.sql import SparkSession
+
+    from load.spark_io import _forecast_schema, _metrics_schema
+
+    spark = SparkSession.getActiveSession() or (
+        SparkSession.builder.master("local[1]").appName("schema-smoke").getOrCreate()
+    )
+
+    fc = pd.DataFrame(
+        {"ds": pd.date_range("2026-06-29", periods=2, freq="D"), "yhat": [100.0, 200.0]}
+    )  # baseline shape: NO yhat_lower/yhat_upper -> all-None band columns
+    fc_df = spark.createDataFrame(
+        forecast_rows(fc, "baseline", RUN_TS), _forecast_schema()
+    )
+    collected = fc_df.collect()
+    assert len(collected) == 2
+    assert collected[0]["forecast_date"] == 20260629
+    assert collected[0]["yhat_lower"] is None  # bound only via the explicit schema
+
+    metrics = {"baseline": {"mae": 1.0, "rmse": 2.0, "mape": 3.0, "wape": 4.0}}
+    m_df = spark.createDataFrame(
+        metrics_rows(metrics, horizon=14, n_folds=8, run_ts=RUN_TS), _metrics_schema()
+    )
+    assert m_df.collect()[0]["horizon"] == 14
+    # IntegerType, matching the live table's INT columns (append-compatible)
+    assert dict(m_df.dtypes)["horizon"] == "int"
+    assert dict(m_df.dtypes)["n_folds"] == "int"

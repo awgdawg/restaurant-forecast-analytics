@@ -18,7 +18,7 @@ from load.load_forecast import (
     forecast_rows,
     metrics_rows,
 )
-from load.load_to_delta import COLUMNS
+from load.load_to_delta import _DDL_TYPES
 
 
 def active_spark():
@@ -48,14 +48,21 @@ def spark_day_counts(spark, table: str) -> dict[int, int]:
 def spark_load_day(spark, table: str, business_date, parquet_path: str) -> int:
     """Idempotently replace one day's rows in bronze from a Parquet file.
 
-    Reads the Parquet, projects to the bronze column order by name (guarding
-    against parquet column-order drift), then replaces just that day via Delta
-    replaceWhere -- the Spark equivalent of load_day's DELETE+INSERT.
+    Reads the Parquet, then cast-projects every column to its bronze DDL type
+    in bronze column order (by name, guarding against parquet column-order
+    drift). The casts are load-bearing: pandas writes nullable ints as
+    int64/double, which Spark reads as Long/Double, and saveAsTable refuses to
+    merge those into the table's INT columns (DELTA_FAILED_TO_MERGE_FIELDS).
+    The SQL connector coerced server-side, so only this path needs the casts.
+    Then replaces just that day via Delta replaceWhere -- the Spark equivalent
+    of load_day's DELETE+INSERT.
 
     Returns the row count taken BEFORE the write, because the write consumes the
     query plan and a post-write count() would re-scan the (now replaced) table.
     """
-    df = spark.read.parquet(parquet_path).select(*COLUMNS)
+    df = spark.read.parquet(parquet_path).selectExpr(
+        *[f"CAST({c} AS {t}) AS {c}" for c, t in _DDL_TYPES.items()]
+    )
     n = df.count()
     df.write.format("delta").mode("overwrite").option(
         "replaceWhere", f"business_date = {int(business_date)}"
@@ -105,11 +112,14 @@ def _forecast_schema():
 
 def _metrics_schema():
     """Explicit StructType for model_metrics, mirroring
-    load/load_forecast.py::_METRICS_TYPES. horizon/n_folds are Python ints ->
-    LongType (Spark's default integer width, avoids overflow surprises)."""
+    load/load_forecast.py::_METRICS_TYPES. horizon/n_folds are IntegerType, NOT
+    LongType: the live table was created by the connector path with INT columns,
+    and spark_write_metrics APPENDS -- appending BIGINT into INT fails with
+    DELTA_FAILED_TO_MERGE_FIELDS. The values are tiny (horizon=14, n_folds=8),
+    so IntegerType is safe and matches the live table exactly."""
     from pyspark.sql.types import (
         DoubleType,
-        LongType,
+        IntegerType,
         StringType,
         StructField,
         StructType,
@@ -123,8 +133,8 @@ def _metrics_schema():
             StructField("rmse", DoubleType(), nullable=True),
             StructField("mape", DoubleType(), nullable=True),
             StructField("wape", DoubleType(), nullable=True),
-            StructField("horizon", LongType(), nullable=False),
-            StructField("n_folds", LongType(), nullable=False),
+            StructField("horizon", IntegerType(), nullable=False),
+            StructField("n_folds", IntegerType(), nullable=False),
             StructField("run_ts", TimestampType(), nullable=False),
         ]
     )
@@ -137,6 +147,14 @@ def spark_write_forecast(spark, fc, model, run_ts, table=FORECAST_TABLE) -> int:
     forecast_rows() builder; the overwrite is the Delta equivalent of that
     path's DELETE-all + INSERT. Empty rows -> no write (matches the connector
     writer's guard). Returns the row count written.
+
+    Note on overwrite semantics: unlike the connector path (DDL + DELETE +
+    INSERT into a pre-shaped table), mode("overwrite").saveAsTable REDEFINES
+    forecast_daily_sales with the DataFrame's schema on every run. That is
+    intentional and safe here: the table is latest-only (no history to
+    preserve), and the pinned _forecast_schema() mirrors _FORECAST_TYPES
+    exactly (LongType=BIGINT, DoubleType=DOUBLE, ...), so the redefined table
+    is identical to the connector-created one.
     """
     rows = forecast_rows(fc, model, run_ts)
     if not rows:

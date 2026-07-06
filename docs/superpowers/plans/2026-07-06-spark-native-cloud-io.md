@@ -28,7 +28,12 @@ One throwaway script, one one-off `jobs submit` (spark_python_task, serverless e
 - [ ] **(a) FUSE Volume reads:** `pyarrow.parquet.read_metadata('/Volumes/workspace/default/raw_orders/business_date=20260705/orders.parquet').num_rows` → expect 101.
 - [ ] **(b) Spark ↔ UC:** `spark.sql("select count(*) from workspace.default.bronze_orders").collect()` and a scratch-table write `spark.sql("create or replace table workspace.default._spike_probe as select 1 as x")` then drop it → both succeed.
 - [ ] **(c) dbt task in-cloud:** submit a one-off run with ONLY a `dbt_task` (`dbt build --select stg_orders`, `warehouse_id 6d80f9f4dae5c90f`), `project_directory` pointing at the already-deployed prod bundle files under `/Workspace/Shared/.bundle/restaurant-forecast-analytics/prod/files`; if that path is unavailable, upload the dbt project fresh to a workspace path and point at that. Question answered: does the managed dbt task's warehouse connection route internally, or hit the same egress wall?
-- [ ] Record all three outcomes verbatim in the report. (a)+(b) green → T1/T2 proceed. (c) decides T3's dbt placement.
+- [x] Record all three outcomes verbatim in the report. (a)+(b) green → T1/T2 proceed. (c) decides T3's dbt placement.
+
+**SPIKE RESULTS (2026-07-06, executed):**
+- **(a) PASS** — `read_metadata` on the FUSE Volume path returned 101 rows (business_date=20260705).
+- **(b) PASS** — active session present; `spark.sql` read bronze (75,659); scratch-table write+drop clean; `spark.read.parquet` on the Volume read 101 rows.
+- **(c) PASS-with-config-fix** — the managed dbt task **connected to the warehouse successfully** (adapter registered, project parsed, 8 threads — NO egress wall), then failed on `UC_HIVE_METASTORE_DISABLED_EXCEPTION`: the auto-generated profile has no catalog, so dbt defaulted to the disabled legacy `hive_metastore`. **T3 fix: declare `catalog: workspace` + `schema: default` on the `dbt_task`** in the bundle. dbt STAYS in the cloud job.
 
 ## Task 1: Spark-native bronze load (TDD on the seam)
 

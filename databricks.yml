@@ -74,6 +74,12 @@ resources:
           max_retries: 1
           dbt_task:
             project_directory: .
+            # catalog/schema pin the auto-generated dbt profile to Unity Catalog;
+            # without them the managed dbt task defaults to the legacy
+            # hive_metastore, which UC-only workspaces disable
+            # (UC_HIVE_METASTORE_DISABLED_EXCEPTION -- proven by the T0 spike).
+            catalog: workspace
+            schema: default
             commands:
               - dbt build
         - task_key: forecast

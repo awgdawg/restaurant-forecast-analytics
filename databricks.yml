@@ -1,0 +1,66 @@
+# Databricks Asset Bundle: the nightly pipeline as code (spec 2026-06-29, §5-6).
+# Phase 1: authored + validated only. Phase 2 (paid workspace) deploys it,
+# adds the publish task + secret scope, and unpauses the schedule.
+bundle:
+  name: restaurant-forecast-analytics
+
+artifacts:
+  default:
+    type: whl
+    build: python -m build --wheel
+    path: .
+
+resources:
+  jobs:
+    restaurant_forecast_nightly:
+      name: restaurant-forecast-nightly
+      schedule:
+        # 04:30 America/Chicago daily -- after the business date closes.
+        # PAUSED until Phase 2 deploys to the paid workspace.
+        quartz_cron_expression: "0 30 4 * * ?"
+        timezone_id: America/Chicago
+        pause_status: PAUSED
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+            dependencies:
+              - ./dist/*.whl
+      tasks:
+        # --refresh-days / --window 3: self-healing freshness. Toast allows
+        # post-close edits (refunds, tip adjustments) that change values
+        # without changing row counts, so the last 3 days are always re-pulled
+        # and re-loaded regardless of count reconciliation.
+        - task_key: extract
+          environment_key: default
+          python_wheel_task:
+            package_name: restaurant_forecast_analytics
+            entry_point: rfa-extract
+            parameters: ["--refresh-days", "3", "--out-dir", "/Volumes/workspace/default/raw_orders"]
+        - task_key: load
+          depends_on:
+            - task_key: extract
+          environment_key: default
+          python_wheel_task:
+            package_name: restaurant_forecast_analytics
+            entry_point: rfa-load
+            parameters: ["--root", "/Volumes/workspace/default/raw_orders", "--window", "3"]
+        - task_key: dbt_build
+          depends_on:
+            - task_key: load
+          environment_key: default
+          dbt_task:
+            project_directory: .
+            commands:
+              - dbt build
+        - task_key: forecast
+          depends_on:
+            - task_key: dbt_build
+          environment_key: default
+          python_wheel_task:
+            package_name: restaurant_forecast_analytics
+            entry_point: rfa-forecast
+
+targets:
+  dev:
+    default: true

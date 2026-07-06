@@ -34,6 +34,22 @@ Delta tables and a `forecast_vs_actuals` dbt view — and the whole nightly pipe
 Phase 2 deploys it to a paid workspace with in-cloud extraction, a live AI/BI dashboard,
 and a daily-refreshing Tableau Public feed.
 
+### Deploying the bundle (prod)
+
+The bundle deliberately contains no workspace hostname (public repo). The Databricks CLI
+reads `DATABRICKS_HOST` / `DATABRICKS_TOKEN` — bridge them from `.env` before any
+`bundle` command, and pass the SQL warehouse for the dbt task explicitly:
+
+```bash
+set -a && source .env && set +a
+export DATABRICKS_HOST="https://$DBX_HOST" DATABRICKS_TOKEN="$DBX_TOKEN"
+databricks bundle deploy -t prod --var dbt_warehouse_id="<your warehouse id>"
+```
+
+`.env` therefore decides where prod deploys — keep it pointed at the intended workspace.
+`--var dbt_warehouse_id` is required for a working prod deploy (an empty value validates
+but fails at run time).
+
 ## Setup
 
 ```powershell

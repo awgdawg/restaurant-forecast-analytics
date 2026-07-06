@@ -50,6 +50,10 @@ databricks bundle deploy -t prod --var dbt_warehouse_id="<your warehouse id>"
 `--var dbt_warehouse_id` is required for a working prod deploy (an empty value validates
 but fails at run time).
 
+Deploy also builds the wheel via `python scripts/build_wheel.py` — make sure the repo
+venv's interpreter is first on `PATH` (`PATH="$PWD/.venv/Scripts:$PATH"`), or the build
+step fails with `ModuleNotFoundError: build`.
+
 ## Setup
 
 ```powershell

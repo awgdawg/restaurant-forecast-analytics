@@ -82,3 +82,11 @@ def test_load_missing_env_and_secrets_raises(monkeypatch):
 
     with pytest.raises(RuntimeError, match="Missing required Toast credentials"):
         load_toast_config()
+
+
+def test_partial_env_raises_env_error_not_secrets(monkeypatch):
+    monkeypatch.setenv("TOAST_CLIENT_ID", "cid")
+    monkeypatch.delenv("TOAST_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("TOAST_RESTAURANT_GUID", raising=False)
+    with pytest.raises(RuntimeError, match="Missing required Toast env var: TOAST_CLIENT_SECRET"):
+        load_toast_config()

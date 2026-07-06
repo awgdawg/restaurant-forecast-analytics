@@ -60,7 +60,7 @@ def load_toast_config() -> ToastConfig:
     Env vars win when present (local runs load them via load_dotenv() in the CLI
     entrypoint). When TOAST_CLIENT_ID is absent -- the in-cloud case, where a
     serverless wheel task has no way to receive env vars -- the three values are
-    read from the '{SECRET_SCOPE}' Databricks secret scope instead.
+    read from the 'restaurant-forecast' Databricks secret scope instead.
     """
     base_url = os.environ.get("TOAST_BASE_URL", DEFAULT_BASE_URL)
     if "TOAST_CLIENT_ID" not in os.environ:

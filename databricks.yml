@@ -36,6 +36,10 @@ resources:
             client: "2"
             dependencies:
               - ./dist/*.whl
+              # dbt runs as a managed dbt_task but still needs the adapter
+              # installed in the serverless environment (exit 127 without it).
+              # Deliberately NOT a wheel dependency -- only the job env needs it.
+              - dbt-databricks>=1.10
       tasks:
         # --refresh-days / --window 3: self-healing freshness. Toast allows
         # post-close edits (refunds, tip adjustments) that change values

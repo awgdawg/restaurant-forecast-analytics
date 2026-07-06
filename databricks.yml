@@ -23,8 +23,11 @@ resources:
     restaurant_forecast_nightly:
       name: restaurant-forecast-nightly
       schedule:
-        # 04:30 America/Chicago daily -- after the business date closes.
-        quartz_cron_expression: "0 30 4 * * ?"
+        # INTERIM (2026-07-06): 09:15 America/Chicago -- runs after the local
+        # 08:45 extract task (scripts/morning_extract.ps1) refreshes the Volume.
+        # Restore to "0 30 4 * * ?" (04:30, after business close) when the
+        # in-cloud extract task below is re-enabled.
+        quartz_cron_expression: "0 15 9 * * ?"
         timezone_id: America/Chicago
         pause_status: PAUSED
       environments:
@@ -40,17 +43,24 @@ resources:
         # and re-loaded regardless of count reconciliation.
         # Retries (spec §11): extract faces the network -> 2 retries; the rest
         # are idempotent (DELETE+INSERT / overwrite) so 1 retry each is safe.
-        - task_key: extract
-          environment_key: default
-          max_retries: 2
-          min_retry_interval_millis: 300000
-          python_wheel_task:
-            package_name: restaurant_forecast_analytics
-            entry_point: rfa-extract
-            parameters: ["--refresh-days", "3", "--out-dir", "${var.raw_volume}"]
+        #
+        # INTERIM (2026-07-06): the extract task is DISABLED. The trial
+        # workspace's serverless egress allowlist blocks ws-api.toasttab.com
+        # (probe: pypi/googleapis resolve, open internet does not; adding a
+        # payment method did not lift it). Until Databricks enables full
+        # egress, scripts/morning_extract.ps1 (Windows Task Scheduler, 08:45)
+        # extracts locally and uploads the trailing days to the Volume.
+        # TO RESTORE FULL-CLOUD: uncomment this task, restore load's
+        # depends_on, and set the schedule back to 04:30.
+        # - task_key: extract
+        #   environment_key: default
+        #   max_retries: 2
+        #   min_retry_interval_millis: 300000
+        #   python_wheel_task:
+        #     package_name: restaurant_forecast_analytics
+        #     entry_point: rfa-extract
+        #     parameters: ["--refresh-days", "3", "--out-dir", "${var.raw_volume}"]
         - task_key: load
-          depends_on:
-            - task_key: extract
           environment_key: default
           max_retries: 1
           python_wheel_task:

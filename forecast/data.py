@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import os
+
 import pandas as pd
 
-MART = "workspace.default_marts.fct_daily_sales"
+
+def mart_table() -> str:
+    """Fully-qualified fct_daily_sales, honoring the same env vars as connect().
+    dbt's generate_schema_name appends the custom suffix: <schema>_marts."""
+    catalog = os.environ.get("DBX_CATALOG", "workspace")
+    schema = os.environ.get("DBX_SCHEMA", "default")
+    return f"{catalog}.{schema}_marts.fct_daily_sales"
 
 
 def clean_daily_series(raw: pd.DataFrame) -> pd.DataFrame:
@@ -17,8 +25,9 @@ def clean_daily_series(raw: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def load_daily_series(conn, table: str = MART) -> pd.DataFrame:
+def load_daily_series(conn, table: str | None = None) -> pd.DataFrame:
     """Query the daily-sales mart and clean it into a forecasting series."""
+    table = table or mart_table()
     cur = conn.cursor()
     cur.execute(f"SELECT business_date, net_sales FROM {table} ORDER BY business_date")
     rows = cur.fetchall()

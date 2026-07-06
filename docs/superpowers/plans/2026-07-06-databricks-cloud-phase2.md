@@ -214,7 +214,8 @@ targets:
 ```
 **Sanctioned adaptation (broad):** the installed CLI's schema is authoritative for the ENTIRE prod-target shape — target-level task overrides, production-mode requirements (`root_path`/`run_as`), retry field names, and variable plumbing. If `bundle validate` rejects any of it, make the minimal change its error directs (keeping semantics: live schedule + warehouse-wired dbt + retries + variables), and document every deviation.
 
-- [ ] **Step 3: Validate BOTH targets** (after the CLI prelude): `"$DBX_CLI" bundle validate` and `"$DBX_CLI" bundle validate -t prod --var prod_host="https://$DBX_HOST" --var dbt_warehouse_id="<warehouse id from Task 0>" --var raw_volume="/Volumes/<catalog>/default/raw_orders"` → both `Validation OK!`.
+- [ ] **Step 3: Validate BOTH targets** (after the CLI prelude): `"$DBX_CLI" bundle validate` and `"$DBX_CLI" bundle validate -t prod --var dbt_warehouse_id="<warehouse id from Task 0>" --var raw_volume="/Volumes/<catalog>/default/raw_orders"` → both `Validation OK!`.
+  *(AS-BUILT NOTE: the CLI rejects variable interpolation on `workspace.host` (auth fields), so there is NO `prod_host` variable — the target workspace resolves from `DATABRICKS_HOST`, which the prelude exports from `.env`. Consequence: `.env` determines where `deploy -t prod` lands; keep it pointed at the trial workspace. A `permissions` block (users/CAN_MANAGE) was also added per the CLI's own remediation for the Shared root path.)*
 - [ ] **Step 4: Commit** `feat: bundle prod target (live schedule, dbt warehouse, retries, vars) + clean wheel builds`.
 
 ### Task 3: Workspace setup — Volume + secret scope
@@ -249,7 +250,7 @@ Two named risks, both with prepared fallbacks:
 - **(b) Prophet on serverless** (spec §12 open question): the wheel's declared deps (`prophet==1.1.6`, `cmdstanpy==1.2.4`) are installed into the job environment from `./dist/*.whl` metadata — the serverless equivalent of the `%pip` check. The first forecast-task run proves it. **Fallbacks if it fails:** pin/adjust versions in the environment spec's `dependencies`, or (worst case) run the forecast task on a small jobs cluster with an init script — document whichever is needed.
 
 - [ ] **Step 1:** Secrets discovery → implement primary or fallback (+ tests if shim). Document the path taken.
-- [ ] **Step 2: Deploy** — `"$DBX_CLI" bundle deploy -t prod --var prod_host="https://$DBX_HOST" --var dbt_warehouse_id="<id>" --var raw_volume="/Volumes/<catalog>/default/raw_orders"`.
+- [ ] **Step 2: Deploy** — `"$DBX_CLI" bundle deploy -t prod --var dbt_warehouse_id="<id>" --var raw_volume="/Volumes/<catalog>/default/raw_orders"` (host comes from `DATABRICKS_HOST` via the prelude — confirm `.env` points at the trial workspace first; there is no `prod_host` variable, see Task 2 as-built note).
 - [ ] **Step 3: First manual cloud run** — `"$DBX_CLI" bundle run restaurant_forecast_nightly -t prod`. Watch all 4 tasks: extract logging `skip/0 orders/N orders` for the 3-day window **proves outbound internet + secrets in-cloud** (the thing Free Edition cannot do); forecast task completing proves prophet/cmdstan on serverless (risk (b)). Capture the run URL. Any task failure → apply the matching fallback, redeploy, re-run.
 - [ ] **Step 4: Schedule check (agent-executable)** — from the deploy output get the job id, then `"$DBX_CLI" jobs get <job_id>` → assert `pause_status: UNPAUSED`, cron `0 30 4 * * ?`, timezone `America/Chicago`. (User may also eyeball the Jobs UI, not required.)
 - [ ] **Step 5: Commit** (shim/bundle adjustments) `feat: in-cloud Toast secrets + first cloud pipeline run` — **checkpoint: Part A / C3 done.**

@@ -1,13 +1,21 @@
 # Databricks Asset Bundle: the nightly pipeline as code (spec 2026-06-29, §5-6).
-# Phase 1: authored + validated only. Phase 2 (paid workspace) deploys it,
-# adds the publish task + secret scope, and unpauses the schedule.
+# dev = authoring/validation target (schedule PAUSED); prod = the paid/trial
+# workspace running nightly (schedule LIVE, dbt wired to a SQL warehouse).
 bundle:
   name: restaurant-forecast-analytics
+
+variables:
+  raw_volume:
+    description: UC Volume path where Toast order Parquet lands
+    default: /Volumes/workspace/default/raw_orders
+  dbt_warehouse_id:
+    description: SQL warehouse id for the prod dbt task (pass via --var at deploy)
+    default: ""
 
 artifacts:
   default:
     type: whl
-    build: python -m build --wheel
+    build: python scripts/build_wheel.py
     path: .
 
 resources:
@@ -16,7 +24,6 @@ resources:
       name: restaurant-forecast-nightly
       schedule:
         # 04:30 America/Chicago daily -- after the business date closes.
-        # PAUSED until Phase 2 deploys to the paid workspace.
         quartz_cron_expression: "0 30 4 * * ?"
         timezone_id: America/Chicago
         pause_status: PAUSED
@@ -31,24 +38,30 @@ resources:
         # post-close edits (refunds, tip adjustments) that change values
         # without changing row counts, so the last 3 days are always re-pulled
         # and re-loaded regardless of count reconciliation.
+        # Retries (spec §11): extract faces the network -> 2 retries; the rest
+        # are idempotent (DELETE+INSERT / overwrite) so 1 retry each is safe.
         - task_key: extract
           environment_key: default
+          max_retries: 2
+          min_retry_interval_millis: 300000
           python_wheel_task:
             package_name: restaurant_forecast_analytics
             entry_point: rfa-extract
-            parameters: ["--refresh-days", "3", "--out-dir", "/Volumes/workspace/default/raw_orders"]
+            parameters: ["--refresh-days", "3", "--out-dir", "${var.raw_volume}"]
         - task_key: load
           depends_on:
             - task_key: extract
           environment_key: default
+          max_retries: 1
           python_wheel_task:
             package_name: restaurant_forecast_analytics
             entry_point: rfa-load
-            parameters: ["--root", "/Volumes/workspace/default/raw_orders", "--window", "3"]
+            parameters: ["--root", "${var.raw_volume}", "--window", "3"]
         - task_key: dbt_build
           depends_on:
             - task_key: load
           environment_key: default
+          max_retries: 1
           dbt_task:
             project_directory: .
             commands:
@@ -57,6 +70,7 @@ resources:
           depends_on:
             - task_key: dbt_build
           environment_key: default
+          max_retries: 1
           python_wheel_task:
             package_name: restaurant_forecast_analytics
             entry_point: rfa-forecast
@@ -64,3 +78,25 @@ resources:
 targets:
   dev:
     default: true
+  prod:
+    mode: production
+    # workspace.host cannot be interpolated (auth field); the CLI reads it from
+    # the DATABRICKS_HOST env var at deploy/validate time instead. See the
+    # deviation note in the commit / task report for the exact forcing error.
+    workspace:
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
+    # /Workspace/Shared is world-writable by design (single-operator trial
+    # workspace); declare it intentional so validate is clean. Per the CLI's
+    # own remediation for the shared-root warning.
+    permissions:
+      - group_name: users
+        level: CAN_MANAGE
+    resources:
+      jobs:
+        restaurant_forecast_nightly:
+          schedule:
+            pause_status: UNPAUSED
+          tasks:
+            - task_key: dbt_build
+              dbt_task:
+                warehouse_id: ${var.dbt_warehouse_id}

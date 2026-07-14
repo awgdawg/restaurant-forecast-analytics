@@ -6,22 +6,37 @@ on:
   pull_request:
     branches: [main]
 
+# Least-privilege token: no job writes to the repo.
+permissions:
+  contents: read
+
 jobs:
-  # Phase-1 security control: gitleaks (secret scan) + ruff, from the tracked
-  # .pre-commit-config.yaml. Must stay in CI.
+  # Phase-1 control: ruff lint + format via the tracked .pre-commit-config.yaml.
+  # CI-side secret scanning is the dedicated gitleaks step below, NOT the
+  # pre-commit gitleaks hook (it only guards staged diffs).
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks scans full history, not just the tip commit
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: pip
       - run: pip install pre-commit
       - run: pre-commit run --all-files
+      # pre-commit's gitleaks hook guards staged diffs locally; in CI nothing is
+      # staged, so scan the full history explicitly.
+      - name: gitleaks (full history scan)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
   tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -36,6 +51,7 @@ jobs:
 
   bundle-validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       # README recommends @main for the latest CLI; pin to a release tag if a

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from load.load_forecast import (
     FORECAST_TABLE,
+    HISTORY_TABLE,
     METRICS_TABLE,
     forecast_rows,
     metrics_rows,
@@ -176,5 +177,23 @@ def spark_write_metrics(
     if not rows:
         return 0
     df = spark.createDataFrame(rows, _metrics_schema())
+    df.write.format("delta").mode("append").saveAsTable(table)
+    return len(rows)
+
+
+def spark_write_forecast_history(spark, fc, model, run_ts, table=HISTORY_TABLE) -> int:
+    """Append this run's horizon to forecast_history (as-of archive; keeps every
+    run's forecast across runs for later lead-time accuracy analysis).
+
+    Mirrors load_forecast.write_forecast_history: rows from the same pure
+    forecast_rows() builder, the pinned _forecast_schema() (baseline band
+    columns are all-None and un-inferrable), append mode. Empty -> no write.
+    Returns the row count written. Note: append + saveAsTable creates the table
+    if absent, so -- unlike the connector path -- no explicit DDL is needed here.
+    """
+    rows = forecast_rows(fc, model, run_ts)
+    if not rows:
+        return 0
+    df = spark.createDataFrame(rows, _forecast_schema())
     df.write.format("delta").mode("append").saveAsTable(table)
     return len(rows)

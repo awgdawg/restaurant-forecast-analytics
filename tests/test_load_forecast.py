@@ -7,9 +7,11 @@ from load.load_forecast import (
     METRICS_COLUMNS,
     forecast_ddl,
     forecast_rows,
+    history_ddl,
     metrics_ddl,
     metrics_rows,
     write_forecast,
+    write_forecast_history,
     write_metrics,
 )
 
@@ -81,6 +83,53 @@ def test_write_forecast_overwrites_then_inserts():
     insert_sql, params = cur.calls[-1]
     assert insert_sql.count("?") == 2 * len(FORECAST_COLUMNS)
     assert params[0] == 20260629 and params[1] == 100.0
+
+
+def test_history_ddl_lists_forecast_columns_and_table():
+    hddl = history_ddl()
+    for col in FORECAST_COLUMNS:  # same columns as forecast_daily_sales
+        assert col in hddl
+    assert "CREATE TABLE IF NOT EXISTS forecast_history" in hddl
+    assert "USING DELTA" in hddl
+
+
+def test_write_forecast_history_appends_without_delete():
+    fc = pd.DataFrame(
+        {
+            "ds": pd.date_range("2026-06-29", periods=2, freq="D"),
+            "yhat": [100.0, 200.0],
+            "yhat_lower": [90.0, 190.0],
+            "yhat_upper": [110.0, 210.0],
+        }
+    )
+    cur = FakeCursor()
+
+    n = write_forecast_history(cur, fc, model="prophet", run_ts=RUN_TS)
+
+    assert n == 2
+    sqls = [s for s, _ in cur.calls]
+    assert any(
+        s.startswith("CREATE TABLE IF NOT EXISTS forecast_history") for s in sqls
+    )
+    assert not any(s.startswith("DELETE") for s in sqls)  # append-only archive
+    insert_sql, params = cur.calls[-1]
+    assert insert_sql.startswith("INSERT INTO forecast_history")
+    assert insert_sql.count("?") == 2 * len(FORECAST_COLUMNS)
+    # rows come from the same pure forecast_rows() builder as forecast_daily_sales
+    expected = forecast_rows(fc, "prophet", RUN_TS)
+    assert params == [v for row in expected for v in row]
+
+
+def test_write_forecast_history_no_op_on_empty_input():
+    cur = FakeCursor()
+
+    n = write_forecast_history(
+        cur, pd.DataFrame(columns=["ds", "yhat"]), "prophet", RUN_TS
+    )
+
+    assert n == 0
+    # DDL may run, but no INSERT (and no malformed 'VALUES ' SQL) is issued
+    assert not any(s.startswith("INSERT") for s, _ in cur.calls)
 
 
 def test_write_metrics_appends_without_delete():

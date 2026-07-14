@@ -18,6 +18,7 @@ import pytest
 
 from load.load_forecast import (
     FORECAST_TABLE,
+    HISTORY_TABLE,
     METRICS_TABLE,
     forecast_rows,
     metrics_rows,
@@ -28,6 +29,7 @@ from load.spark_io import (
     spark_day_counts,
     spark_load_day,
     spark_write_forecast,
+    spark_write_forecast_history,
     spark_write_metrics,
 )
 
@@ -303,6 +305,61 @@ def test_spark_write_metrics_empty_returns_zero_no_create(monkeypatch):
 
     assert n == 0
     assert spark.created == []
+
+
+def test_spark_write_forecast_history_appends_with_schema(monkeypatch):
+    _pin_schemas(monkeypatch)
+    fc = pd.DataFrame(
+        {
+            "ds": pd.date_range("2026-06-29", periods=2, freq="D"),
+            "yhat": [100.0, 200.0],
+            "yhat_lower": [90.0, 190.0],
+            "yhat_upper": [110.0, 210.0],
+        }
+    )
+    spark = FakeSpark()
+
+    n = spark_write_forecast_history(spark, fc, model="prophet", run_ts=RUN_TS)
+
+    assert n == 2
+    rows, schema = spark.created[0]
+    # same explicit forecast schema as forecast_daily_sales (not inferred)
+    assert schema is _FC_SENTINEL
+    assert rows[0] == (20260629, 100.0, 90.0, 110.0, "prophet", RUN_TS)
+    # append-only archive (every run's forecast preserved across runs)
+    assert spark.created_df.write.calls["format"] == "delta"
+    assert spark.created_df.write.calls["mode"] == "append"
+    assert spark.created_df.write.calls["saveAsTable"] == HISTORY_TABLE
+
+
+def test_spark_write_forecast_history_baseline_band_less_uses_schema(monkeypatch):
+    """LOAD-BEARING: a band-less baseline frame yields all-None band values, which
+    Spark cannot infer -- so the explicit schema MUST be forwarded here too."""
+    _pin_schemas(monkeypatch)
+    fc = pd.DataFrame(
+        {"ds": pd.date_range("2026-06-29", periods=2, freq="D"), "yhat": [100.0, 200.0]}
+    )  # baseline shape: NO yhat_lower/yhat_upper
+    spark = FakeSpark()
+
+    n = spark_write_forecast_history(spark, fc, model="baseline", run_ts=RUN_TS)
+
+    assert n == 2
+    rows, schema = spark.created[0]
+    assert rows[0] == (20260629, 100.0, None, None, "baseline", RUN_TS)
+    assert schema is _FC_SENTINEL
+    assert spark.created_df.write.calls["mode"] == "append"
+
+
+def test_spark_write_forecast_history_empty_returns_zero_no_create(monkeypatch):
+    _pin_schemas(monkeypatch)
+    spark = FakeSpark()
+
+    n = spark_write_forecast_history(
+        spark, pd.DataFrame(columns=["ds", "yhat"]), model="baseline", run_ts=RUN_TS
+    )
+
+    assert n == 0
+    assert spark.created == []  # no createDataFrame, no write
 
 
 def test_real_spark_schemas_bind_baseline_rows():

@@ -1,8 +1,12 @@
-"""Write forecast outputs to Delta: forecast_daily_sales + model_metrics.
+"""Write forecast outputs to Delta: forecast_daily_sales + model_metrics +
+forecast_history.
 
 forecast_daily_sales is overwritten each run (it holds only the latest
-horizon); model_metrics is append-only (a history of backtest results).
-Tables land in the connection's default schema, alongside bronze_orders.
+horizon); model_metrics and forecast_history are append-only. forecast_history
+archives every run's winning-model horizon (same columns as
+forecast_daily_sales, stamped with that run's run_ts) as an as-of record for
+future lead-time accuracy analysis. Tables land in the connection's default
+schema, alongside bronze_orders.
 """
 
 from __future__ import annotations
@@ -13,6 +17,7 @@ import pandas as pd
 
 FORECAST_TABLE = "forecast_daily_sales"
 METRICS_TABLE = "model_metrics"
+HISTORY_TABLE = "forecast_history"
 
 _FORECAST_TYPES = {
     "forecast_date": "BIGINT",
@@ -48,6 +53,11 @@ def forecast_ddl(table: str = FORECAST_TABLE) -> str:
 
 def metrics_ddl(table: str = METRICS_TABLE) -> str:
     return _ddl(table, _METRICS_TYPES)
+
+
+def history_ddl(table: str = HISTORY_TABLE) -> str:
+    # Same columns as forecast_daily_sales (reuses _FORECAST_TYPES).
+    return _ddl(table, _FORECAST_TYPES)
 
 
 def _insert_sql(table: str, columns: list[str], n_rows: int) -> str:
@@ -108,4 +118,19 @@ def write_metrics(
         return 0
     params = [v for row in rows for v in row]
     cursor.execute(_insert_sql(table, METRICS_COLUMNS, len(rows)), params)
+    return len(rows)
+
+
+def write_forecast_history(
+    cursor, fc: pd.DataFrame, model: str, run_ts: datetime, table: str = HISTORY_TABLE
+) -> int:
+    """Append this run's horizon to the as-of archive (keeps every run's
+    forecast for later lead-time accuracy analysis). Same rows as
+    write_forecast, but append-only (no DELETE) -- mirrors write_metrics."""
+    cursor.execute(history_ddl(table))
+    rows = forecast_rows(fc, model, run_ts)
+    if not rows:
+        return 0
+    params = [v for row in rows for v in row]
+    cursor.execute(_insert_sql(table, FORECAST_COLUMNS, len(rows)), params)
     return len(rows)

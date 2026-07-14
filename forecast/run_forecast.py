@@ -68,8 +68,13 @@ def main() -> None:
     metrics = {}
     backtests = {}
     for name, fn in models.items():
+        # step=horizon keeps the folds contiguous and NON-overlapping under any
+        # --horizon: exactly one prediction per date per model, which the
+        # backtest_predictions table and the forecast_vs_actuals view's
+        # one-row-per-date join both rely on. (At the default 14/14 this
+        # matches rolling_origin_backtest's own step default -- a no-op.)
         bt = rolling_origin_backtest(
-            series, fn, horizon=args.horizon, n_folds=args.folds
+            series, fn, horizon=args.horizon, n_folds=args.folds, step=args.horizon
         )
         backtests[name] = bt
         metrics[name] = summarize(bt)

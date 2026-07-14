@@ -4,6 +4,9 @@ from pathlib import Path
 
 import pandas as pd
 
+# Intentionally NOT at column-parity with the cloud forecast_vs_actuals view
+# (no yhat_source, no historical backtest yhat): this local CSV is a dev-run
+# convenience; the Sheet sourced from the view is the production consumer.
 COLUMNS = [
     "date",
     "net_sales_actual",

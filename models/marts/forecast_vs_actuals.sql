@@ -19,9 +19,13 @@ forecast as (
 -- forecast_daily_sales is latest-only and holds exactly ONE model's rows (the
 -- current winner), so max(model) collapses that single distinct value to a
 -- scalar. We use it to filter backtest_predictions (which stores BOTH models)
--- down to the winner -- yielding exactly one backtest prediction per date, so
--- the join below can't fan out into extra rows. Deriving it (vs hardcoding
--- 'prophet') keeps the view honest if the baseline ever wins.
+-- down to the winner. That leaves one backtest prediction per date, so the
+-- join below can't fan out -- given two assumptions: the winner filter here
+-- removes cross-model duplication, and one-prediction-per-date-per-model
+-- holds upstream because run_forecast pins step=horizon (non-overlapping
+-- backtest folds). The dbt unique test on business_date is the backstop if
+-- either ever breaks. Deriving the winner (vs hardcoding 'prophet') keeps
+-- the view honest if the baseline ever wins.
 winner as (
     select max(model) as model
     from {{ source('forecast', 'forecast_daily_sales') }}

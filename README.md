@@ -1,5 +1,7 @@
 # restaurant-forecast-analytics
 
+[![CI](https://github.com/awgdawg/restaurant-forecast-analytics/actions/workflows/ci.yml/badge.svg)](https://github.com/awgdawg/restaurant-forecast-analytics/actions/workflows/ci.yml)
+
 Daily restaurant sales forecasting from live **Toast** POS data → **Databricks** (dbt) → **Tableau Public**.
 
 Targets the forecasting and Tableau skill gaps. See the design spec in

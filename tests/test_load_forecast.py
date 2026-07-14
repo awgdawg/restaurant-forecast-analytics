@@ -3,13 +3,17 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from load.load_forecast import (
+    BACKTEST_COLUMNS,
     FORECAST_COLUMNS,
     METRICS_COLUMNS,
+    backtest_ddl,
+    backtest_rows,
     forecast_ddl,
     forecast_rows,
     history_ddl,
     metrics_ddl,
     metrics_rows,
+    write_backtest_predictions,
     write_forecast,
     write_forecast_history,
     write_metrics,
@@ -157,4 +161,81 @@ def test_writers_no_op_on_empty_input():
 
     assert n_fc == 0 and n_m == 0
     # DDL may run, but no INSERT (and no malformed 'VALUES ' SQL) is issued
+    assert not any(s.startswith("INSERT") for s, _ in cur.calls)
+
+
+# --- backtest_predictions -----------------------------------------------------
+
+
+def _bt(yhats, fold=0, start="2026-03-01"):
+    """A rolling_origin_backtest-shaped frame: long df[ds, y, yhat, fold]."""
+    n = len(yhats)
+    return pd.DataFrame(
+        {
+            "ds": pd.date_range(start, periods=n, freq="D"),
+            "y": [float(v) + 5.0 for v in yhats],
+            "yhat": [float(v) for v in yhats],
+            "fold": [fold] * n,
+        }
+    )
+
+
+def test_backtest_ddl_lists_columns_and_table():
+    bddl = backtest_ddl()
+    for col in BACKTEST_COLUMNS:
+        assert col in bddl
+    assert "CREATE TABLE IF NOT EXISTS backtest_predictions" in bddl
+    assert "USING DELTA" in bddl
+    assert "fold INT" in bddl  # fold is INT, not BIGINT (mirrors metrics INT trap)
+
+
+def test_backtest_rows_convert_ds_and_fold_int():
+    bt = _bt([100.0, 200.0], fold=3)
+
+    rows = backtest_rows(bt, model="prophet", run_ts=RUN_TS)
+
+    # BACKTEST_COLUMNS order: forecast_date, yhat, model, fold, run_ts
+    assert rows == [
+        (20260301, 100.0, "prophet", 3, RUN_TS),
+        (20260302, 200.0, "prophet", 3, RUN_TS),
+    ]
+    # ds converted to yyyymmdd int, fold coerced to a plain int
+    assert isinstance(rows[0][0], int)
+    assert isinstance(rows[0][3], int)
+
+
+def test_write_backtest_predictions_deletes_once_across_both_models():
+    """The sharp edge: one DELETE per RUN (not per model), and it must precede
+    every INSERT -- otherwise the second model's write would wipe the first."""
+    bt_by_model = {
+        "baseline": _bt([10.0, 20.0]),
+        "prophet": _bt([11.0, 21.0]),
+    }
+    cur = FakeCursor()
+
+    n = write_backtest_predictions(cur, bt_by_model, run_ts=RUN_TS)
+
+    assert n == 4  # 2 models x 2 rows
+    sqls = [s for s, _ in cur.calls]
+    delete_idx = [i for i, s in enumerate(sqls) if s.startswith("DELETE")]
+    insert_idx = [i for i, s in enumerate(sqls) if s.startswith("INSERT")]
+    assert len(delete_idx) == 1  # exactly ONE delete for the whole run
+    assert "DELETE FROM backtest_predictions" in sqls
+    assert len(insert_idx) == 2  # one insert per model
+    assert delete_idx[0] < min(insert_idx)  # delete before any insert
+    # both models' rows land, each tagged with its own model name
+    all_params = [p for _, p in cur.calls if p]
+    models_written = {p[2] for params in all_params for p in [params[:5], params[5:10]]}
+    assert models_written == {"baseline", "prophet"}
+
+
+def test_write_backtest_predictions_no_op_on_empty_input():
+    cur = FakeCursor()
+
+    n = write_backtest_predictions(
+        cur, {"baseline": pd.DataFrame(columns=["ds", "y", "yhat", "fold"])}, RUN_TS
+    )
+
+    assert n == 0
+    # DDL/DELETE may run, but no INSERT (no malformed 'VALUES ' SQL) is issued
     assert not any(s.startswith("INSERT") for s, _ in cur.calls)

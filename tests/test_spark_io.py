@@ -17,9 +17,11 @@ import pandas as pd
 import pytest
 
 from load.load_forecast import (
+    BACKTEST_TABLE,
     FORECAST_TABLE,
     HISTORY_TABLE,
     METRICS_TABLE,
+    backtest_rows,
     forecast_rows,
     metrics_rows,
 )
@@ -28,6 +30,7 @@ from load.spark_io import (
     active_spark,
     spark_day_counts,
     spark_load_day,
+    spark_write_backtest_predictions,
     spark_write_forecast,
     spark_write_forecast_history,
     spark_write_metrics,
@@ -196,13 +199,28 @@ RUN_TS = datetime(2026, 6, 29, 12, 0, tzinfo=timezone.utc)
 
 _FC_SENTINEL = object()
 _METRICS_SENTINEL = object()
+_BACKTEST_SENTINEL = object()
 
 
 def _pin_schemas(monkeypatch):
-    """Replace both lazy schema builders with sentinels so no pyspark import
+    """Replace the lazy schema builders with sentinels so no pyspark import
     happens locally, and the writer's passed-through schema is identifiable."""
     monkeypatch.setattr("load.spark_io._forecast_schema", lambda: _FC_SENTINEL)
     monkeypatch.setattr("load.spark_io._metrics_schema", lambda: _METRICS_SENTINEL)
+    monkeypatch.setattr("load.spark_io._backtest_schema", lambda: _BACKTEST_SENTINEL)
+
+
+def _bt(yhats, fold=0, start="2026-03-01"):
+    """A rolling_origin_backtest-shaped frame: long df[ds, y, yhat, fold]."""
+    n = len(yhats)
+    return pd.DataFrame(
+        {
+            "ds": pd.date_range(start, periods=n, freq="D"),
+            "y": [float(v) + 5.0 for v in yhats],
+            "yhat": [float(v) for v in yhats],
+            "fold": [fold] * n,
+        }
+    )
 
 
 def test_spark_write_forecast_prophet_shape_overwrites_with_schema(monkeypatch):
@@ -362,6 +380,54 @@ def test_spark_write_forecast_history_empty_returns_zero_no_create(monkeypatch):
     assert spark.created == []  # no createDataFrame, no write
 
 
+def test_spark_write_backtest_predictions_overwrites_once_with_both_models(monkeypatch):
+    """Overwrite-once semantics: ONE createDataFrame carrying BOTH models' rows,
+    written with a SINGLE mode('overwrite') -- no per-model partial-overwrite
+    trap (a second overwrite would wipe the first model's rows)."""
+    _pin_schemas(monkeypatch)
+    bt_by_model = {"baseline": _bt([10.0, 20.0]), "prophet": _bt([11.0, 21.0])}
+    spark = FakeSpark()
+
+    n = spark_write_backtest_predictions(spark, bt_by_model, run_ts=RUN_TS)
+
+    assert n == 4  # 2 models x 2 rows, one combined write
+    assert len(spark.created) == 1  # a single createDataFrame (one overwrite)
+    rows, schema = spark.created[0]
+    assert schema is _BACKTEST_SENTINEL  # explicit schema forwarded, not inferred
+    # both models present in the single combined row set
+    assert {r[2] for r in rows} == {"baseline", "prophet"}
+    # backtest row shape: forecast_date int, yhat, model, fold int, run_ts
+    assert (20260301, 10.0, "baseline", 0, RUN_TS) in rows
+    assert spark.created_df.write.calls["format"] == "delta"
+    assert spark.created_df.write.calls["mode"] == "overwrite"
+    assert spark.created_df.write.calls["saveAsTable"] == BACKTEST_TABLE
+
+
+def test_spark_write_backtest_predictions_custom_table(monkeypatch):
+    _pin_schemas(monkeypatch)
+    spark = FakeSpark()
+
+    spark_write_backtest_predictions(
+        spark, {"baseline": _bt([1.0])}, run_ts=RUN_TS, table="cat.sch.bt"
+    )
+
+    assert spark.created_df.write.calls["saveAsTable"] == "cat.sch.bt"
+
+
+def test_spark_write_backtest_predictions_empty_returns_zero_no_create(monkeypatch):
+    _pin_schemas(monkeypatch)
+    spark = FakeSpark()
+
+    n = spark_write_backtest_predictions(
+        spark,
+        {"baseline": pd.DataFrame(columns=["ds", "y", "yhat", "fold"])},
+        run_ts=RUN_TS,
+    )
+
+    assert n == 0
+    assert spark.created == []  # no createDataFrame, no write
+
+
 def test_real_spark_schemas_bind_baseline_rows():
     """Pyspark-gated smoke test: SKIPS locally (pyspark is absent from the
     venv by design). In any pyspark-bearing environment (in-cloud, future CI)
@@ -372,7 +438,7 @@ def test_real_spark_schemas_bind_baseline_rows():
     pytest.importorskip("pyspark")
     from pyspark.sql import SparkSession
 
-    from load.spark_io import _forecast_schema, _metrics_schema
+    from load.spark_io import _backtest_schema, _forecast_schema, _metrics_schema
 
     spark = SparkSession.getActiveSession() or (
         SparkSession.builder.master("local[1]").appName("schema-smoke").getOrCreate()
@@ -397,3 +463,14 @@ def test_real_spark_schemas_bind_baseline_rows():
     # IntegerType, matching the live table's INT columns (append-compatible)
     assert dict(m_df.dtypes)["horizon"] == "int"
     assert dict(m_df.dtypes)["n_folds"] == "int"
+
+    bt = _bt([100.0, 200.0], fold=3)
+    bt_df = spark.createDataFrame(
+        backtest_rows(bt, "prophet", RUN_TS), _backtest_schema()
+    )
+    bt_collected = bt_df.collect()
+    assert bt_collected[0]["forecast_date"] == 20260301
+    assert bt_collected[0]["fold"] == 3
+    # INT trap: fold MUST be IntegerType (mirrors metrics horizon/n_folds), else
+    # a Delta overwrite/merge against the live INT column fails.
+    assert dict(bt_df.dtypes)["fold"] == "int"

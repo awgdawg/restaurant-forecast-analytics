@@ -13,9 +13,11 @@ load/load_to_delta.py so the two paths stay behaviourally identical.
 from __future__ import annotations
 
 from load.load_forecast import (
+    BACKTEST_TABLE,
     FORECAST_TABLE,
     HISTORY_TABLE,
     METRICS_TABLE,
+    backtest_rows,
     forecast_rows,
     metrics_rows,
 )
@@ -139,6 +141,55 @@ def _metrics_schema():
             StructField("run_ts", TimestampType(), nullable=False),
         ]
     )
+
+
+def _backtest_schema():
+    """Explicit StructType for backtest_predictions, mirroring
+    load/load_forecast.py::_BACKTEST_TYPES. fold is IntegerType, NOT LongType:
+    same INT trap as model_metrics -- the connector path (and backtest_ddl)
+    create fold as INT, and a Delta write of BIGINT into an INT column fails
+    with DELTA_FAILED_TO_MERGE_FIELDS. fold values are tiny (0..7), so
+    IntegerType is safe and matches the table exactly."""
+    from pyspark.sql.types import (
+        DoubleType,
+        IntegerType,
+        LongType,
+        StringType,
+        StructField,
+        StructType,
+        TimestampType,
+    )
+
+    return StructType(
+        [
+            StructField("forecast_date", LongType(), nullable=False),
+            StructField("yhat", DoubleType(), nullable=False),
+            StructField("model", StringType(), nullable=False),
+            StructField("fold", IntegerType(), nullable=False),
+            StructField("run_ts", TimestampType(), nullable=False),
+        ]
+    )
+
+
+def spark_write_backtest_predictions(
+    spark, bt_by_model, run_ts, table=BACKTEST_TABLE
+) -> int:
+    """Latest-only write of this run's out-of-sample backtest for BOTH models to
+    backtest_predictions. Returns total rows written.
+
+    Mirrors load_forecast.write_backtest_predictions: rows come from the same
+    pure backtest_rows() builder. Overwrite-once semantics: both models' rows are
+    concatenated into a SINGLE createDataFrame + one mode('overwrite') write, so
+    there is no partial-overwrite trap (two separate overwrites would have the
+    second wipe the first). Empty -> no write (matches the connector guard)."""
+    rows = []
+    for model, bt in bt_by_model.items():
+        rows.extend(backtest_rows(bt, model, run_ts))
+    if not rows:
+        return 0
+    df = spark.createDataFrame(rows, _backtest_schema())
+    df.write.format("delta").mode("overwrite").saveAsTable(table)
+    return len(rows)
 
 
 def spark_write_forecast(spark, fc, model, run_ts, table=FORECAST_TABLE) -> int:

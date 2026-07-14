@@ -20,9 +20,15 @@ from forecast.export_tableau import (
 from forecast.models import seasonal_naive
 from forecast.prophet_model import prophet_forecast
 from load.databricks import connect
-from load.load_forecast import write_forecast, write_forecast_history, write_metrics
+from load.load_forecast import (
+    write_backtest_predictions,
+    write_forecast,
+    write_forecast_history,
+    write_metrics,
+)
 from load.spark_io import (
     active_spark,
+    spark_write_backtest_predictions,
     spark_write_forecast,
     spark_write_forecast_history,
     spark_write_metrics,
@@ -60,10 +66,12 @@ def main() -> None:
         "prophet": lambda tr, h: prophet_forecast(tr, h),
     }
     metrics = {}
+    backtests = {}
     for name, fn in models.items():
         bt = rolling_origin_backtest(
             series, fn, horizon=args.horizon, n_folds=args.folds
         )
+        backtests[name] = bt
         metrics[name] = summarize(bt)
         m = metrics[name]
         print(
@@ -98,6 +106,7 @@ def main() -> None:
         n_fc = spark_write_forecast(spark, forecast, winner, run_ts)
         n_m = spark_write_metrics(spark, metrics, args.horizon, args.folds, run_ts)
         n_h = spark_write_forecast_history(spark, forecast, winner, run_ts)
+        n_bt = spark_write_backtest_predictions(spark, backtests, run_ts)
     else:
         conn = connect()
         try:
@@ -105,12 +114,13 @@ def main() -> None:
             n_fc = write_forecast(cur, forecast, winner, run_ts)
             n_m = write_metrics(cur, metrics, args.horizon, args.folds, run_ts)
             n_h = write_forecast_history(cur, forecast, winner, run_ts)
+            n_bt = write_backtest_predictions(cur, backtests, run_ts)
             cur.close()
         finally:
             conn.close()
     print(
         f"Wrote {n_fc} rows to forecast_daily_sales, {n_m} rows to model_metrics, "
-        f"{n_h} rows to forecast_history"
+        f"{n_h} rows to forecast_history, {n_bt} rows to backtest_predictions"
     )
 
 

@@ -12,3 +12,4 @@ sources:
     tables:
       - name: forecast_daily_sales
       - name: model_metrics
+      - name: backtest_predictions

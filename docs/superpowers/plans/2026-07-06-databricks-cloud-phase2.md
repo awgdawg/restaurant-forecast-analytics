@@ -230,9 +230,9 @@ All CLI (prelude assumed).
 
 - [ ] **Step 1: Upload Parquet → Volume** — `"$DBX_CLI" fs cp -r data/raw/orders "dbfs:/Volumes/<catalog>/default/raw_orders"` (~768 partition dirs; minutes; re-runnable with `--overwrite`). Verify: `"$DBX_CLI" fs ls "dbfs:/Volumes/<catalog>/default/raw_orders" | wc -l` ≈ 768.
 - [ ] **Step 2: Load bronze from the LOCAL archive** — `.\.venv\Scripts\python.exe -m load.run_load` (the local process reads the local `data/raw/orders`; `dbfs:/Volumes` paths are only readable in-cloud — the Volume copy from Step 1 is for the nightly job). Writes to the NEW workspace via the cut-over `.env`. Expected: `768 days on disk; loading 768` then `Loaded 75659 rows into bronze_orders` (fresh workspace = full load; allow minutes).
-- [ ] **Step 3: Pre-create the forecast tables, then dbt build.** On a fresh workspace the `forecast_vs_actuals` view's source tables don't exist until the first forecast run, and Databricks validates relations at CREATE VIEW — so ensure the (empty) tables first:
+- [ ] **Step 3: Pre-create the forecast tables, then dbt build.** On a fresh workspace the `forecast_vs_actuals` view's source tables (`forecast_daily_sales`, `backtest_predictions`) don't exist until the first forecast run, and Databricks validates relations at CREATE VIEW — so ensure the (empty) tables first:
 ```powershell
-.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; load_dotenv(); from load.databricks import connect; from load.load_forecast import forecast_ddl, metrics_ddl; c=connect(); cur=c.cursor(); cur.execute(forecast_ddl()); cur.execute(metrics_ddl()); print('forecast tables ensured'); cur.close(); c.close()"
+.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; load_dotenv(); from load.databricks import connect; from load.load_forecast import forecast_ddl, metrics_ddl, backtest_ddl; c=connect(); cur=c.cursor(); cur.execute(forecast_ddl()); cur.execute(metrics_ddl()); cur.execute(backtest_ddl()); print('forecast tables ensured'); cur.close(); c.close()"
 ```
 Then the standard dbt invocation (`dbtRunner ['build','--profiles-dir','.']` one-liner) → expected `PASS=14 TOTAL=14` (view sees empty tables → 0 forecast rows; its tests pass).
 - [ ] **Step 4: Forecast + relational verify** — `.\.venv\Scripts\python.exe -m forecast.run_forecast` (backtest + 14-day forecast + table writes), then:

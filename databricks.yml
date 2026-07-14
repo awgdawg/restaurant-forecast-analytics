@@ -11,6 +11,10 @@ variables:
   dbt_warehouse_id:
     description: SQL warehouse id for the prod dbt task (pass via --var at deploy)
     default: ""
+  gsheet_id:
+    description: Google Sheet ID the publish task mirrors the serving tables into
+      (not sensitive; pass via --var at deploy)
+    default: ""
 
 artifacts:
   default:
@@ -94,6 +98,19 @@ resources:
           python_wheel_task:
             package_name: restaurant_forecast_analytics
             entry_point: rfa-forecast
+        # Mirror forecast_vs_actuals + model_metrics into a Google Sheet that
+        # Tableau Public syncs from. --sheet-id is passed as a CLI arg because
+        # serverless wheel tasks have no env-var injection (same reason
+        # GCP_SA_JSON comes from the secret scope). Idempotent overwrite -> 1 retry.
+        - task_key: publish
+          depends_on:
+            - task_key: forecast
+          environment_key: default
+          max_retries: 1
+          python_wheel_task:
+            package_name: restaurant_forecast_analytics
+            entry_point: rfa-publish
+            parameters: ["--sheet-id", "${var.gsheet_id}"]
 
 targets:
   dev:

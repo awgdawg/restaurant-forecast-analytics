@@ -13,6 +13,15 @@ def mart_table() -> str:
     return f"{catalog}.{schema}_marts.fct_daily_sales"
 
 
+def metrics_table() -> str:
+    """Fully-qualified model_metrics, honoring the same env vars as connect().
+    Unlike mart_table, model_metrics is a forecast-WRITTEN source table living in
+    the BASE schema (alongside bronze_orders), NOT the dbt <schema>_marts."""
+    catalog = os.environ.get("DBX_CATALOG", "workspace")
+    schema = os.environ.get("DBX_SCHEMA", "default")
+    return f"{catalog}.{schema}.model_metrics"
+
+
 def clean_daily_series(raw: pd.DataFrame) -> pd.DataFrame:
     """raw: cols business_date (int YYYYMMDD), net_sales (float).
     Returns continuous daily df[ds, y] with missing (closed) days filled 0.0."""

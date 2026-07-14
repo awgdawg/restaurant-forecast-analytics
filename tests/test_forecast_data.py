@@ -1,6 +1,11 @@
 import pandas as pd
 
-from forecast.data import clean_daily_series, load_daily_series_spark, mart_table
+from forecast.data import (
+    clean_daily_series,
+    load_daily_series_spark,
+    mart_table,
+    metrics_table,
+)
 
 
 def test_clean_fills_missing_days_with_zero_and_is_continuous():
@@ -31,6 +36,20 @@ def test_mart_table_defaults_match_free_workspace(monkeypatch):
     monkeypatch.delenv("DBX_CATALOG", raising=False)
     monkeypatch.delenv("DBX_SCHEMA", raising=False)
     assert mart_table() == "workspace.default_marts.fct_daily_sales"
+
+
+def test_metrics_table_builds_from_env(monkeypatch):
+    monkeypatch.setenv("DBX_CATALOG", "maincat")
+    monkeypatch.setenv("DBX_SCHEMA", "restaurant")
+    # model_metrics is a forecast-written SOURCE table in the BASE schema,
+    # NOT in <schema>_marts (unlike mart_table's fct_daily_sales).
+    assert metrics_table() == "maincat.restaurant.model_metrics"
+
+
+def test_metrics_table_defaults_match_free_workspace(monkeypatch):
+    monkeypatch.delenv("DBX_CATALOG", raising=False)
+    monkeypatch.delenv("DBX_SCHEMA", raising=False)
+    assert metrics_table() == "workspace.default.model_metrics"
 
 
 class _FakeSparkDF:

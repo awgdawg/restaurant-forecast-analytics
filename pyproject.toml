@@ -17,12 +17,17 @@ dependencies = [
     "prophet==1.1.6",
     "cmdstanpy==1.2.4",
     "holidays>=0.50",
+    "gspread>=6",
+    "google-auth>=2",
 ]
 
 [project.scripts]
 rfa-extract = "ingest.extract:main"
 rfa-load = "load.run_load:main"
 rfa-forecast = "forecast.run_forecast:main"
+rfa-publish = "publish.to_sheets:main"
 
+# "publish" MUST be listed: without it the wheel omits the package and the
+# in-cloud publish task fails with ModuleNotFoundError.
 [tool.setuptools]
-packages = ["ingest", "load", "forecast"]
+packages = ["ingest", "load", "forecast", "publish"]

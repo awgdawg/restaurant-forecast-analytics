@@ -12,7 +12,9 @@ def _weekly_series(n):
 def test_backtest_aligns_actuals_to_predictions_across_folds():
     series = _weekly_series(100)
 
-    bt = rolling_origin_backtest(series, seasonal_naive, horizon=14, n_folds=3, step=14, min_train=30)
+    bt = rolling_origin_backtest(
+        series, seasonal_naive, horizon=14, n_folds=3, step=14, min_train=30
+    )
 
     assert set(bt.columns) == {"ds", "y", "yhat", "fold"}
     assert bt["fold"].nunique() == 3
@@ -23,7 +25,9 @@ def test_backtest_aligns_actuals_to_predictions_across_folds():
 
 def test_summarize_returns_all_metrics():
     series = _weekly_series(100)
-    bt = rolling_origin_backtest(series, seasonal_naive, horizon=14, n_folds=3, step=14, min_train=30)
+    bt = rolling_origin_backtest(
+        series, seasonal_naive, horizon=14, n_folds=3, step=14, min_train=30
+    )
 
     m = summarize(bt)
 

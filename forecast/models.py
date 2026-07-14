@@ -4,7 +4,9 @@ import numpy as np
 import pandas as pd
 
 
-def seasonal_naive(train: pd.DataFrame, horizon: int, season_length: int = 7) -> pd.DataFrame:
+def seasonal_naive(
+    train: pd.DataFrame, horizon: int, season_length: int = 7
+) -> pd.DataFrame:
     """Forecast = the last `season_length` observed values, tiled across the horizon.
     Future day T+1 reuses the value from T+1-season_length (same weekday last week)."""
     last_season = train["y"].to_numpy()[-season_length:]

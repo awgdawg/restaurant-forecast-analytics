@@ -4,7 +4,12 @@ from forecast.export_tableau import build_forecast_vs_actuals, build_metrics_fra
 
 
 def test_build_forecast_vs_actuals_stacks_history_then_forecast():
-    series = pd.DataFrame({"ds": pd.date_range("2026-06-01", periods=3, freq="D"), "y": [10.0, 20.0, 30.0]})
+    series = pd.DataFrame(
+        {
+            "ds": pd.date_range("2026-06-01", periods=3, freq="D"),
+            "y": [10.0, 20.0, 30.0],
+        }
+    )
     forecast = pd.DataFrame(
         {
             "ds": pd.date_range("2026-06-04", periods=2, freq="D"),
@@ -17,7 +22,13 @@ def test_build_forecast_vs_actuals_stacks_history_then_forecast():
     out = build_forecast_vs_actuals(series, forecast, model_name="prophet")
 
     assert list(out.columns) == [
-        "date", "net_sales_actual", "yhat", "yhat_lower", "yhat_upper", "model", "is_forecast",
+        "date",
+        "net_sales_actual",
+        "yhat",
+        "yhat_lower",
+        "yhat_upper",
+        "model",
+        "is_forecast",
     ]
     assert len(out) == 5  # 3 history + 2 forecast
     assert out["is_forecast"].tolist() == [False, False, False, True, True]
@@ -26,7 +37,10 @@ def test_build_forecast_vs_actuals_stacks_history_then_forecast():
 
 
 def test_build_metrics_frame_one_row_per_model():
-    metrics = {"baseline": {"mae": 500.0, "wape": 20.0}, "prophet": {"mae": 400.0, "wape": 15.0}}
+    metrics = {
+        "baseline": {"mae": 500.0, "wape": 20.0},
+        "prophet": {"mae": 400.0, "wape": 15.0},
+    }
 
     out = build_metrics_frame(metrics)
 

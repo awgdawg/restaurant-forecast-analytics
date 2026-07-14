@@ -88,7 +88,9 @@ def parquet_day_counts(root: str | Path) -> dict[int, int]:
 
 
 def bronze_day_counts(cursor, table: str) -> dict[int, int]:
-    cursor.execute(f"SELECT business_date, COUNT(*) FROM {table} GROUP BY business_date")
+    cursor.execute(
+        f"SELECT business_date, COUNT(*) FROM {table} GROUP BY business_date"
+    )
     return {int(bd): int(n) for bd, n in cursor.fetchall()}
 
 

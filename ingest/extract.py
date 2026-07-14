@@ -129,11 +129,14 @@ def main() -> None:
         "--overwrite", action="store_true", help="re-fetch days already on disk"
     )
     parser.add_argument(
-        "--out-dir", default="data/raw/orders",
+        "--out-dir",
+        default="data/raw/orders",
         help="output root (local path or /Volumes/... in-cloud)",
     )
     parser.add_argument(
-        "--refresh-days", type=int, default=0,
+        "--refresh-days",
+        type=int,
+        default=0,
         help="re-pull the last N days with overwrite (captures post-close edits); "
         "overrides --start and auto-detect",
     )
@@ -159,9 +162,7 @@ def main() -> None:
         print(f"Detected start: {start.isoformat()}")
 
     print(f"Extracting {start.isoformat()} -> {end.isoformat()} into {out_dir}/")
-    total = extract_range(
-        client, start, end, out_dir, overwrite=overwrite, log=print
-    )
+    total = extract_range(client, start, end, out_dir, overwrite=overwrite, log=print)
     print(f"Wrote {total} order rows under {out_dir}")
 
 

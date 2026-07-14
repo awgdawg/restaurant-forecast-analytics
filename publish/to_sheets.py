@@ -77,7 +77,9 @@ def frame_to_rows(df: pd.DataFrame) -> list[list]:
     return rows
 
 
-def publish_frames(client, sheet_id: str, frames: dict[str, pd.DataFrame]) -> dict[str, int]:
+def publish_frames(
+    client, sheet_id: str, frames: dict[str, pd.DataFrame]
+) -> dict[str, int]:
     """Overwrite each named tab of the sheet with its frame's rows.
 
     client: an authorized gspread client (open_by_key(sheet_id) -> spreadsheet
@@ -201,9 +203,7 @@ def main() -> None:
             conn.close()
 
     client = _gspread_client()
-    counts = publish_frames(
-        client, sheet_id, {FORECAST_TAB: fva, METRICS_TAB: metrics}
-    )
+    counts = publish_frames(client, sheet_id, {FORECAST_TAB: fva, METRICS_TAB: metrics})
     print(
         f"Published {counts[FORECAST_TAB]} rows to {FORECAST_TAB}, "
         f"{counts[METRICS_TAB]} rows to {METRICS_TAB}"

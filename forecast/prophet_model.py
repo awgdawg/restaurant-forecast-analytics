@@ -17,7 +17,9 @@ def clip_nonnegative(fc: pd.DataFrame) -> pd.DataFrame:
     return fc
 
 
-def prophet_forecast(train: pd.DataFrame, horizon: int, *, yearly: bool = True) -> pd.DataFrame:
+def prophet_forecast(
+    train: pd.DataFrame, horizon: int, *, yearly: bool = True
+) -> pd.DataFrame:
     """Fit Prophet (multiplicative weekly + optional yearly + US holidays) and
     return the `horizon` days after the last train date with a prediction band."""
     m = Prophet(
@@ -30,5 +32,9 @@ def prophet_forecast(train: pd.DataFrame, horizon: int, *, yearly: bool = True) 
     m.fit(train[["ds", "y"]])
     future = m.make_future_dataframe(periods=horizon, freq="D")
     fc = m.predict(future)
-    out = fc[["ds", "yhat", "yhat_lower", "yhat_upper"]].tail(horizon).reset_index(drop=True)
+    out = (
+        fc[["ds", "yhat", "yhat_lower", "yhat_upper"]]
+        .tail(horizon)
+        .reset_index(drop=True)
+    )
     return clip_nonnegative(out)

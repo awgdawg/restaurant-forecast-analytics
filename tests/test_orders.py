@@ -25,8 +25,17 @@ EXPECTED_KEYS = {
     "deleted",
 }
 PII_TOKENS = (
-    "customer", "email", "phone", "first", "last", "name",
-    "address", "delivery", "card", "digits", "payment",
+    "customer",
+    "email",
+    "phone",
+    "first",
+    "last",
+    "name",
+    "address",
+    "delivery",
+    "card",
+    "digits",
+    "payment",
 )
 
 

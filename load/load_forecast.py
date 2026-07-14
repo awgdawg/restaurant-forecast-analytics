@@ -62,7 +62,10 @@ def forecast_rows(fc: pd.DataFrame, model: str, run_ts: datetime) -> list[tuple]
     out = fc.reindex(columns=["ds", "yhat", "yhat_lower", "yhat_upper"])
     rows = []
     for r in out.itertuples(index=False):
-        vals = [None if pd.isna(v) else float(v) for v in (r.yhat, r.yhat_lower, r.yhat_upper)]
+        vals = [
+            None if pd.isna(v) else float(v)
+            for v in (r.yhat, r.yhat_lower, r.yhat_upper)
+        ]
         rows.append((int(r.ds.strftime("%Y%m%d")), *vals, model, run_ts))
     return rows
 
@@ -91,7 +94,11 @@ def write_forecast(
 
 
 def write_metrics(
-    cursor, metrics_by_model: dict, horizon: int, n_folds: int, run_ts: datetime,
+    cursor,
+    metrics_by_model: dict,
+    horizon: int,
+    n_folds: int,
+    run_ts: datetime,
     table: str = METRICS_TABLE,
 ) -> int:
     """Append this run's backtest metrics (keeps history across runs)."""

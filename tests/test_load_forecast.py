@@ -74,7 +74,9 @@ def test_write_forecast_overwrites_then_inserts():
 
     assert n == 2
     sqls = [s for s, _ in cur.calls]
-    assert any(s.startswith("CREATE TABLE IF NOT EXISTS forecast_daily_sales") for s in sqls)
+    assert any(
+        s.startswith("CREATE TABLE IF NOT EXISTS forecast_daily_sales") for s in sqls
+    )
     assert "DELETE FROM forecast_daily_sales" in sqls  # overwrite semantics
     insert_sql, params = cur.calls[-1]
     assert insert_sql.count("?") == 2 * len(FORECAST_COLUMNS)

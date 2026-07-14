@@ -51,7 +51,9 @@ def test_extract_skips_days_already_on_disk(tmp_path):
     # pre-stage 6/25 as already downloaded
     part = tmp_path / "business_date=20260625"
     part.mkdir(parents=True)
-    pd.DataFrame([{"order_guid": "old"}]).to_parquet(part / "orders.parquet", index=False)
+    pd.DataFrame([{"order_guid": "old"}]).to_parquet(
+        part / "orders.parquet", index=False
+    )
 
     n = extract_range(client, date(2026, 6, 25), date(2026, 6, 26), tmp_path)
 
@@ -66,7 +68,9 @@ def test_extract_overwrite_refetches_existing_days(tmp_path):
     client = FakeClient({"20260625": [_order("o625", 20260625)]})
     part = tmp_path / "business_date=20260625"
     part.mkdir(parents=True)
-    pd.DataFrame([{"order_guid": "old"}]).to_parquet(part / "orders.parquet", index=False)
+    pd.DataFrame([{"order_guid": "old"}]).to_parquet(
+        part / "orders.parquet", index=False
+    )
 
     n = extract_range(
         client, date(2026, 6, 25), date(2026, 6, 25), tmp_path, overwrite=True

@@ -4,7 +4,15 @@ from pathlib import Path
 
 import pandas as pd
 
-COLUMNS = ["date", "net_sales_actual", "yhat", "yhat_lower", "yhat_upper", "model", "is_forecast"]
+COLUMNS = [
+    "date",
+    "net_sales_actual",
+    "yhat",
+    "yhat_lower",
+    "yhat_upper",
+    "model",
+    "is_forecast",
+]
 
 
 def build_forecast_vs_actuals(
@@ -25,10 +33,14 @@ def build_forecast_vs_actuals(
 
 def build_metrics_frame(metrics_by_model: dict) -> pd.DataFrame:
     """One row per model: model, mae, rmse, mape, wape (whatever keys are present)."""
-    return pd.DataFrame([{"model": name, **vals} for name, vals in metrics_by_model.items()])
+    return pd.DataFrame(
+        [{"model": name, **vals} for name, vals in metrics_by_model.items()]
+    )
 
 
-def write_exports(fva: pd.DataFrame, metrics: pd.DataFrame, out_dir: str = "exports") -> None:
+def write_exports(
+    fva: pd.DataFrame, metrics: pd.DataFrame, out_dir: str = "exports"
+) -> None:
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     fva.to_csv(Path(out_dir) / "forecast_vs_actuals.csv", index=False)
     metrics.to_csv(Path(out_dir) / "backtest_metrics.csv", index=False)

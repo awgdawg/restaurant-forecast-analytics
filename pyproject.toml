@@ -9,8 +9,12 @@ description = "Toast POS -> Databricks + dbt -> Prophet sales forecasting pipeli
 requires-python = ">=3.10"
 dependencies = [
     "requests>=2.32",
-    "numpy>=1.26",
-    "pandas>=2.2",
+    # Upper caps are load-bearing: the serverless job env re-resolves these
+    # nightly from THIS metadata (requirements.txt only pins the local venv).
+    # pandas 3 breaks prophet 1.1.6's holiday features (duplicate-label
+    # reindex in crosstab; killed the nightly forecast task 2026-07-17..29).
+    "numpy>=1.26,<3",
+    "pandas>=2.2,<3",
     "pyarrow>=17",
     "python-dotenv>=1.0",
     "databricks-sql-connector>=4.0",

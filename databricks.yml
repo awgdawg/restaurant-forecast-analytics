@@ -26,6 +26,11 @@ resources:
   jobs:
     restaurant_forecast_nightly:
       name: restaurant-forecast-nightly
+      # Failure alerting: the 2026-07-17..29 pandas-3 breakage ran silent for
+      # 13 days because nothing notified anyone. Never again.
+      email_notifications:
+        on_failure:
+          - aug.l.turner@gmail.com
       schedule:
         # INTERIM (2026-07-06): 09:15 America/Chicago -- runs after the local
         # 08:45 extract task (scripts/morning_extract.ps1) refreshes the Volume.

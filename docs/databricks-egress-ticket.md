@@ -9,8 +9,8 @@ line is the proposed ticket body; fill in the bracketed fields before sending.
 **Subject:** Serverless egress DNS-blocked despite account network policy
 "Allow access to all destinations" (upgraded trial workspace)
 
-**Workspace:** `dbc-d23f88b2-648b.cloud.databricks.com` (workspace ID
-`7474652979604267`)
+**Workspace:** `dbc-<workspace>.cloud.databricks.com` (workspace ID
+`<workspace-id>`)
 
 **Account email:** [account owner email]
 
@@ -21,7 +21,7 @@ for this workspace shows **"Allow access to all destinations."**
 ## What we are trying to do
 
 A scheduled Databricks Job (`restaurant-forecast-nightly`, job ID
-`595045873697030`) runs Python wheel tasks on serverless compute. The first
+`<job-id>`) runs Python wheel tasks on serverless compute. The first
 task must call a third-party REST API — Toast POS at
 `ws-api.toasttab.com` — to ingest point-of-sale data.
 
@@ -35,9 +35,9 @@ set to allow all destinations.
 ## Evidence
 
 Reproducible probe (one-time serverless run, `spark_python_task`, environment
-client `"2"`, no credentials involved): run ID `815692134823180` on
+client `"2"`, no credentials involved): run ID `<run-id>` on
 2026-07-07, run page:
-`https://dbc-d23f88b2-648b.cloud.databricks.com/?o=7474652979604267#job/805932300006018/run/815692134823180`
+`https://dbc-<workspace>.cloud.databricks.com/?o=<workspace-id>#job/<probe-job-id>/run/<run-id>`
 
 Output, verbatim:
 

@@ -7,7 +7,8 @@
 -- nightly-authoritative; nothing downstream reads this view.
 -- Anchored on a constant "today" row and LEFT JOINed both ways, so it
 -- returns EXACTLY ONE ROW even pre-open, on closed Mondays, or if last
--- night's forecast is missing (zeros/nulls, never an empty result).
+-- night's forecast is missing (zeros/nulls, never an empty result when the
+-- Volume is readable -- an unreadable root errors loudly, as it should).
 
 with today as (
     select cast(
@@ -31,7 +32,16 @@ with today as (
 -- parquet.`path` reader errors outright with
 -- PARQUET_COLUMN_DATA_TYPE_MISMATCH). Reading the typed column first and
 -- falling back to the rescued JSON covers both file shapes: verified against
--- bronze_orders over all 792 shared dates, max abs diff 0.00.
+-- bronze_orders over all 792 shared dates, max abs diff 0.00. The fallback is
+-- direction-agnostic on purpose -- it recovers the value whichever type
+-- inference happens to pick, which stops mattering only in theory and starts
+-- mattering once the partition count passes read_files' inference sample cap
+-- (~1000 files, so around mid-2027) and the sampled majority can flip.
+-- EXIT CONDITION: drop this coalesce only once ingest/orders.py writes
+-- explicit-schema parquet AND the ~790 existing partitions have been
+-- rewritten -- fixing the writer alone leaves every historical file INT64.
+-- rescuedDataColumn is pinned below rather than left to its default, since
+-- this expression load-bears on that column existing.
 raw_orders as (
     select
         cast(business_date as bigint) as business_date,
@@ -48,18 +58,23 @@ raw_orders as (
         deleted
     from read_files(
         '/Volumes/workspace/default/raw_orders/',
-        format => 'parquet'
+        format => 'parquet',
+        rescuedDataColumn => '_rescued_data'
     )
 ),
 
 -- Live-order filter and net-sales math mirror stg_orders / fct_daily_sales.
+-- opened_date is stored UTC; it is converted to Chicago local here so the
+-- timestamp agrees with the Chicago-local business_date the view is keyed on.
 today_orders as (
     select
         o.business_date,
         count(*)                                             as order_count,
         sum(o.num_guests)                                    as guest_count,
         round(sum(o.net_amount) - sum(o.deferred_amount), 2) as net_sales_so_far,
-        max(cast(o.opened_date as timestamp))                as last_order_opened_at
+        max(from_utc_timestamp(
+            cast(o.opened_date as timestamp), 'America/Chicago'
+        ))                                                   as last_order_opened_at
     from raw_orders o
     join today t on o.business_date = t.business_date
     where not o.voided and not o.deleted

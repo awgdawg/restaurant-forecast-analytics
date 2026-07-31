@@ -6,6 +6,35 @@ so customer contact, delivery address, and card data cannot appear downstream.
 
 from __future__ import annotations
 
+import pyarrow as pa
+
+# The one authoritative parquet schema for order rows. Mirrors the bronze DDL
+# (load/load_to_delta.py::_DDL_TYPES) so parquet and Delta agree by
+# construction; a schema-inferring write is how deferred_amount drifted
+# INT64/DOUBLE across days and got rescue-NULLed by typed multi-file reads
+# (see models/marts/intraday_today.sql, 2026-07-31). Money is float64 even
+# when a day's sums are integral; num_guests stays a nullable int64 even on
+# all-None days (inference makes those null-typed).
+ORDERS_SCHEMA = pa.schema(
+    [
+        ("business_date", pa.int64()),
+        ("order_guid", pa.string()),
+        ("opened_date", pa.string()),
+        ("closed_date", pa.string()),
+        ("source", pa.string()),
+        ("dining_option_guid", pa.string()),
+        ("num_guests", pa.int64()),
+        ("num_checks", pa.int64()),
+        ("net_amount", pa.float64()),
+        ("total_amount", pa.float64()),
+        ("tax_amount", pa.float64()),
+        ("tip_amount", pa.float64()),
+        ("deferred_amount", pa.float64()),
+        ("voided", pa.bool_()),
+        ("deleted", pa.bool_()),
+    ]
+)
+
 
 def _is_live(node: dict) -> bool:
     return not node.get("voided", False) and not node.get("deleted", False)

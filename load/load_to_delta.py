@@ -29,6 +29,8 @@ COLUMNS = [
     "deleted",
 ]
 
+# Mirrored by ingest/orders.py::ORDERS_SCHEMA (parquet) -- keep in sync;
+# tests/test_orders.py::test_orders_schema_mirrors_bronze_ddl enforces it.
 _DDL_TYPES = {
     "business_date": "BIGINT",
     "order_guid": "STRING",

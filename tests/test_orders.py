@@ -98,3 +98,25 @@ def test_deferred_amount_sums_deferred_selections():
     assert row["deferred_amount"] == 25.0
     # net_amount is still the raw check amount; the subtraction happens in dbt
     assert row["net_amount"] == 40.0
+
+
+def test_orders_schema_mirrors_bronze_ddl():
+    """ORDERS_SCHEMA and load_to_delta's bronze DDL must agree by construction:
+    same columns, same order, corresponding types. INT is widened to int64 in
+    parquet (safe: bronze ingests via SQL INSERT, not direct parquet load)."""
+    import pyarrow as pa
+
+    from ingest.orders import ORDERS_SCHEMA
+    from load.load_to_delta import COLUMNS, _DDL_TYPES
+
+    ddl_to_arrow = {
+        "BIGINT": pa.int64(),
+        "INT": pa.int64(),
+        "DOUBLE": pa.float64(),
+        "STRING": pa.string(),
+        "BOOLEAN": pa.bool_(),
+    }
+    assert ORDERS_SCHEMA.names == COLUMNS
+    for name in COLUMNS:
+        assert ORDERS_SCHEMA.field(name).type == ddl_to_arrow[_DDL_TYPES[name]], name
+        assert ORDERS_SCHEMA.field(name).nullable, name

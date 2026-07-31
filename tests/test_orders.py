@@ -158,3 +158,15 @@ def test_money_fields_are_floats_on_empty_sums():
     row = flatten_order(order)
     assert isinstance(row["deferred_amount"], float)
     assert isinstance(row["tip_amount"], float)
+
+    # A fully-voided order leaves live_checks empty, so _sum itself sums an empty
+    # iterable -- the shape behind the drifted rows in the live baseline.
+    voided_row = flatten_order(
+        {
+            "guid": "o-voided",
+            "businessDate": 20260701,
+            "checks": [{"amount": 9.0, "voided": True}],
+        }
+    )
+    for field in ("net_amount", "total_amount", "tax_amount"):
+        assert isinstance(voided_row[field], float), field

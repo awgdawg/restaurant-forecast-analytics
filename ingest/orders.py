@@ -45,6 +45,8 @@ def _is_live(node: dict) -> bool:
     return not node.get("voided", False) and not node.get("deleted", False)
 
 
+# float() on all three money sums is load-bearing, not a redundant cast:
+# Toast sends whole-dollar amounts as JSON ints and round(int, 4) returns int.
 def _deferred_amount(live_checks: list[dict]) -> float:
     """Sum prices of deferred (e.g. gift-card) selections — excluded from net sales."""
     return float(

@@ -400,6 +400,24 @@ Expected: trailing partitions show today's modification time.
 
 ## Task 4: Container definition
 
+> **AMENDMENT (2026-07-31, as-built):** three additions beyond the blocks
+> below. (1) `ENV PYTHONUNBUFFERED=1` — Cloud Logging must see progress lines
+> in real time and must not lose buffered output on SIGKILL (task timeout /
+> OOM). (2) A tzdata note on the Dockerfile: `ZoneInfo("America/Chicago")` in
+> `ingest/sync.py` needs tzdata, which arrives transitively via `pandas>=2.2`;
+> if pandas is ever dropped from the image, add an explicit tzdata dependency
+> or `sync.py` dies at import. (3) The `.gcloudignore` below was REPLACED by a
+> hardened version: gcloud folds in `.gitignore` only when it AUTO-generates
+> the file, so the hand-written one made every gitignored artifact
+> upload-eligible — `target/` (1.7MB of dbt artifacts) and
+> `.databricks/bundle/prod/resources.json`, which carries the user's email
+> into a RETAINED GCS source archive. Fix: a leading `#!include:.gitignore`
+> directive plus explicit lines. Order is load-bearing — the include comes
+> FIRST so the explicit `data/`/`exports/` lines beat `.gitignore`'s
+> `!exports/*.csv` negation (last match wins). `.databricks/` must stay
+> explicit: it is ignored via a NESTED `.databricks/.gitignore`, which the
+> include directive does not read.
+
 **Files:** Create `Dockerfile`, `.gcloudignore`.
 
 - [ ] **Step 1:** `Dockerfile`:

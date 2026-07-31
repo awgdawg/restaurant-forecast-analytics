@@ -18,6 +18,11 @@ dependencies = [
     "pyarrow>=17",
     "python-dotenv>=1.0",
     "databricks-sql-connector>=4.0",
+    # The <1 cap is a DOWNGRADE trigger, not merely a ceiling: if Databricks
+    # bumps the serverless base env to sdk 1.x, this cap forces the nightly
+    # re-resolve to install an old 0.x OVER the preinstalled 1.x -- the same
+    # failure class as the pandas-3 incident above. Re-check on any serverless
+    # environment-version bump.
     "databricks-sdk>=0.20,<1",
     "prophet==1.1.6",
     "cmdstanpy==1.2.4",

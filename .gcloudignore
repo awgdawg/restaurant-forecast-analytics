@@ -1,10 +1,16 @@
+#!include:.gitignore
 .git
 .venv
+.databricks/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+.env*
 data/
 exports/
 logs/
 dist/
+build/
 docs/
 tests/
-.env
 *.log

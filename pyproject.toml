@@ -18,6 +18,7 @@ dependencies = [
     "pyarrow>=17",
     "python-dotenv>=1.0",
     "databricks-sql-connector>=4.0",
+    "databricks-sdk>=0.20,<1",
     "prophet==1.1.6",
     "cmdstanpy==1.2.4",
     "holidays>=0.50",
@@ -27,6 +28,7 @@ dependencies = [
 
 [project.scripts]
 rfa-extract = "ingest.extract:main"
+rfa-sync = "ingest.sync:main"
 rfa-load = "load.run_load:main"
 rfa-forecast = "forecast.run_forecast:main"
 rfa-publish = "publish.to_sheets:main"

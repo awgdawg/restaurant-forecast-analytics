@@ -10,6 +10,7 @@ numpy==2.2.6
 pandas==2.2.3
 pyarrow==17.0.0
 databricks-sql-connector==4.0.5
+databricks-sdk==0.63.0
 prophet==1.1.6
 # Pin <1.3: cmdstanpy 1.3.0's validate_cmdstan_path requires a makefile that
 # prophet 1.1.6's bundled runtime cmdstan lacks (it ships a precompiled binary).

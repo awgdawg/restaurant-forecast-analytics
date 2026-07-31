@@ -144,3 +144,47 @@ discipline.
 Toast webhooks (future push-based upgrade — Cloud Run service endpoint is the
 natural home when wanted); intraday updates to marts/forecast; labor/inventory
 sources; any Databricks workspace migration.
+
+## As-built addendum (2026-07-31)
+
+Both phases were executed on 2026-07-31 and shipped as designed above; this
+section records what is live and what the build learned. The spec body is
+unchanged.
+
+**Phase 1 (PC retirement).** Cloud Run Job `toast-sync` (image built to
+Artifact Registry in project `restaurant-forecast-ops`), Cloud Scheduler
+trigger at 08:30 America/Chicago running `rfa-sync --refresh-days 3`, all five
+credentials injected from Secret Manager. The parallel-run parity window
+against the PC extract is still in progress, so the Windows Task Scheduler
+entry remains enabled and is pending disable — criterion 1 stays open until it
+closes.
+
+**Phase 2 (intraday).** Second Cloud Run Job `toast-sync-today` from the same
+image (`--args="--today"`, no rebuild), scheduled
+`*/15 10-20 * * 0,2-6` America/Chicago. dbt view `intraday_today`
+(`models/marts/intraday_today.sql`) reads today's partition via `read_files`
+over the Volume root and joins `forecast_daily_sales`.
+
+**Success criterion 3 — OBSERVED.** Two readings of `intraday_today` on
+2026-07-31, spanning a scheduled poll:
+
+| Reading (CT) | Orders | Net sales so far | % of forecast |
+|---|---|---|---|
+| ~12:59 | 33 | $665.31 | 19.8% |
+| ~13:26 | 38 | $753.31 | 22.4% |
+
+The numbers moved between scheduled polls, and the Volume partition's mtime sat
+seconds after the 13:00 poll — sub-15-minute staleness end to end, with no
+Databricks job run in between.
+
+**Finding, deferred: `deferred_amount` writer types.** The Phase 2 spike found
+that `ingest/orders.py` writes `deferred_amount` as INT64 on days with no
+deferred selections and DOUBLE on days with one, so `read_files` type inference
+diverts one half of the files to `_rescued_data` — silently NULLing net sales.
+The view carries a `coalesce(deferred_amount, try_cast(get_json_object(
+_rescued_data, '$.deferred_amount') as double), 0)` rescue that recovers both
+file shapes (verified against `bronze_orders` across all 792 shared dates, max
+abs diff 0.00) and documents the mechanism in comments. The writer fix —
+explicit-schema parquet plus a rewrite of the ~790 existing partitions — is
+queued as a separate task; fixing the writer alone would leave every historical
+file INT64.

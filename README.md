@@ -36,23 +36,41 @@ as code in a Databricks Asset Bundle ([`databricks.yml`](databricks.yml)). The
 (unpaused in the `prod` target). See the
 [cloud design spec](docs/superpowers/specs/2026-06-29-databricks-cloud-pipeline-design.md).
 
-### In-cloud I/O and the interim extract
+### In-cloud I/O and two-speed extraction
 
 The trial workspace's serverless egress allowlist blocks outbound internet — both the
 Toast API and the workspace's *own* SQL endpoint (evidence and an open support ticket in
-[`docs/databricks-egress-ticket.md`](docs/databricks-egress-ticket.md)). Two consequences
-shape the as-built system:
+[`docs/databricks-egress-ticket.md`](docs/databricks-egress-ticket.md)) — and classic
+compute is unavailable on it, so extraction has nowhere to run inside Databricks. Two
+consequences shape the as-built system:
 
 - **Spark-native table I/O in-cloud.** `load`, `forecast`, and `publish` detect the active
   Spark session (`load/spark_io.py`) and do all table reads/writes through Spark / Unity
   Catalog (Volume reads are FUSE-mounted); locally the same entry points use
   `databricks-sql-connector` unchanged.
-- **Interim local extract.** The in-cloud `extract` task is commented out in the bundle.
-  Instead `scripts/morning_extract.ps1` runs at 08:45 daily (Windows Task Scheduler),
-  re-pulling the trailing 3 days from Toast and uploading them to the UC Volume ahead of
-  the 09:15 cloud run. Restoring full-cloud extraction is a one-shot change once Databricks
-  opens egress — uncomment the task, restore `load`'s `depends_on`, move the schedule to
-  04:30 (steps are in the `databricks.yml` comments).
+- **Extraction runs on GCP Cloud Run** (project `restaurant-forecast-ops`), not on a PC:
+  a containerized `rfa-sync` job pulls from Toast and uploads Parquet partitions to the UC
+  Volume over the Databricks Files API (`ingest/to_volume.py`), with Toast and upload
+  credentials in GCP Secret Manager. Two schedules give the pipeline two speeds:
+
+| Lane | Cadence (America/Chicago) | Command | Feeds |
+|---|---|---|---|
+| **Nightly** — authoritative | 08:30 daily | `rfa-sync --refresh-days 3` | the 09:15 job: bronze → dbt → forecast → Sheet |
+| **Intraday** — read-through | every 15 min, service hours (Tue–Sun) | `rfa-sync --today` | `intraday_today`: today-so-far vs. today's forecast |
+
+Only the nightly lane writes tables; its trailing 3-day re-pull finalizes each day's
+post-close edits, and intraday partials never reach bronze or the marts. The fast lane
+reads through instead —
+[`models/marts/intraday_today.sql`](models/marts/intraday_today.sql) queries today's raw
+partition directly with `read_files` and joins today's forecast — so a dashboard tile
+stays current to within the polling interval with **zero extra Databricks job runs**.
+
+Two extractors remain as break-glass, neither of them the scheduled path:
+`scripts/morning_extract.ps1` (local, manual — the original PC job, still the proven
+gap-backfill tool; its Windows Task Scheduler entry retires at the end of the Cloud Run
+parity run) and [`.github/workflows/extract.yml`](.github/workflows/extract.yml) (Actions
+manual dispatch, needs `TOAST_*` secrets). The bundle's own `extract` task stays commented
+out.
 
 `publish` (`publish/to_sheets.py`) mirrors `forecast_vs_actuals` and `model_metrics` into a
 Google Sheet for Tableau Public to sync from; dashboard work is next (no dashboard exists
@@ -94,13 +112,14 @@ copy .env.example .env   # then fill in Toast + Databricks credentials
 
 ## Layout
 
-- `ingest/` — local Python: Toast API auth + extraction (retry, auto-detect, resumable backfill)
+- `ingest/` — Toast API auth + extraction (retry, auto-detect, resumable backfill); `sync.py` (the `rfa-sync` entry point) + `to_volume.py` (Files-API upload) are what Cloud Run runs
 - `load/` — raw Parquet → Databricks Delta bronze (incremental by default; `--full-refresh` to reload) + forecast/metrics Delta writers; `spark_io.py` is the in-cloud Spark path
-- `models/` — dbt (staging → marts) on Databricks
+- `models/` — dbt (staging → marts) on Databricks, plus the `intraday_today` fast-lane view over today's raw partition
 - `forecast/` — baseline + Prophet, rolling-origin backtest, Tableau exports
 - `publish/` — mirror `forecast_vs_actuals` + `model_metrics` into a Google Sheet (gspread) for Tableau Public
 - `exports/` — forecast-vs-actuals + metrics CSVs (Tableau Public data source)
-- `scripts/` — wheel build + the interim `morning_extract.ps1` local extract
-- `databricks.yml` — Asset Bundle: the nightly `load` → `dbt_build` → `forecast` → `publish` Workflow as code (serverless; `prod` runs unpaused at 09:15, the `extract` task is interim-local)
+- `scripts/` — wheel build + `morning_extract.ps1`, the manual local-extract fallback
+- `Dockerfile` — the Cloud Run image: `rfa-sync` (extract + Volume upload) on both schedules
+- `databricks.yml` — Asset Bundle: the nightly `load` → `dbt_build` → `forecast` → `publish` Workflow as code (serverless; `prod` runs unpaused at 09:15; the `extract` task stays disabled — extraction runs on Cloud Run)
 - `tests/` — pytest
 - `docs/` — spec, plans, forecast writeup, captured API shapes

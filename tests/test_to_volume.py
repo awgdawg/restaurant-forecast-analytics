@@ -68,6 +68,14 @@ def test_upload_partitions_uploads_each_existing_day(tmp_path):
     ]
 
 
-def test_upload_partitions_empty_window_never_builds_client(tmp_path):
-    # client=None + no partitions must return 0 WITHOUT constructing a real client
+def _must_not_build_client():
+    raise AssertionError("client must not be built for an empty window")
+
+
+def test_upload_partitions_empty_window_never_builds_client(tmp_path, monkeypatch):
+    # client=None + no partitions must return 0 WITHOUT constructing a real
+    # client. Patched explicitly so the test fails structurally if the empty
+    # check ever moves below client construction -- unpatched it only proved
+    # anything on a machine whose env happened to lack Databricks credentials.
+    monkeypatch.setattr("ingest.to_volume._workspace_client", _must_not_build_client)
     assert upload_partitions(tmp_path, [date(2026, 7, 28)], "/Volumes/x") == 0

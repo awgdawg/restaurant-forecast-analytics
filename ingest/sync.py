@@ -44,10 +44,14 @@ def main(argv=None) -> None:
         description="Extract Toast orders and upload partitions to the UC Volume."
     )
     mode = parser.add_mutually_exclusive_group(required=True)
+    # default MUST stay None: argparse counts an option whose value IS the
+    # action default as "not seen" when enforcing a required mutually-exclusive
+    # group, so default=0 makes an explicit `--refresh-days 0` die with the
+    # generic group message and renders the ">= 1" check below unreachable.
     mode.add_argument(
         "--refresh-days",
         type=int,
-        default=0,
+        default=None,
         help="re-pull the trailing N days ending yesterday (self-healing window)",
     )
     mode.add_argument(
@@ -56,11 +60,11 @@ def main(argv=None) -> None:
     parser.add_argument("--out-dir", default="data/raw/orders")
     parser.add_argument("--volume-root", default=DEFAULT_VOLUME_ROOT)
     args = parser.parse_args(argv)
-    if not args.today and args.refresh_days < 1:
+    if not args.today and (args.refresh_days is None or args.refresh_days < 1):
         parser.error("--refresh-days must be >= 1")
 
     load_dotenv()
-    start, end = sync_window(args.refresh_days, args.today, business_today())
+    start, end = sync_window(args.refresh_days or 0, args.today, business_today())
     client = ToastClient(load_toast_config())
     out_dir = Path(args.out_dir)
     print(f"Syncing {start.isoformat()} -> {end.isoformat()}")
@@ -69,14 +73,20 @@ def main(argv=None) -> None:
     uploaded = upload_partitions(out_dir, days, args.volume_root, log=print)
 
     # Empty-window guard: the restaurant closes only on Mondays, so a refresh
-    # window (>= 2 days) can never legitimately yield zero partitions -- zero
+    # window (>= 2 days) can never legitimately be empty -- an empty result
     # means extraction is broken, not that nothing happened. The 2026-07
     # incident was a silent no-op rather than a red run, so fail loudly here.
-    # --today is exempt: pre-open or a Monday legitimately uploads nothing.
-    if not args.today and uploaded == 0:
+    # BOTH conditions are checked: uploaded == 0 catches a cold working dir,
+    # and rows == 0 catches the warm one, where a total extraction failure
+    # leaves stale partitions from earlier runs on disk (extract_range skips
+    # zero-order days without deleting them) that get re-uploaded and would
+    # otherwise report success.
+    # --today is exempt: pre-open or a Monday legitimately yields nothing.
+    if not args.today and (uploaded == 0 or rows == 0):
         print(
-            f"ERROR: no partitions uploaded for {start.isoformat()} -> "
-            f"{end.isoformat()}; extraction produced nothing.",
+            f"ERROR: refresh window {start.isoformat()} -> {end.isoformat()} "
+            f"produced no data (rows={rows}, uploaded={uploaded}, "
+            f"out_dir={out_dir}, volume_root={args.volume_root})",
             file=sys.stderr,
         )
         sys.exit(1)

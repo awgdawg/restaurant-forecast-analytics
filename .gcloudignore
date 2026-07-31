@@ -1,0 +1,10 @@
+.git
+.venv
+data/
+exports/
+logs/
+dist/
+docs/
+tests/
+.env
+*.log

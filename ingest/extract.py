@@ -14,11 +14,12 @@ from collections.abc import Iterator
 from datetime import date, timedelta
 from pathlib import Path
 
-import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 from dotenv import load_dotenv
 
 from ingest.config import load_toast_config
-from ingest.orders import flatten_order
+from ingest.orders import ORDERS_SCHEMA, flatten_order
 from ingest.toast_client import ToastClient
 
 
@@ -113,7 +114,10 @@ def extract_range(
             emit(f"{bd}: 0 orders")
             continue
         part.mkdir(parents=True, exist_ok=True)
-        pd.DataFrame(rows).to_parquet(target, index=False)
+        # Explicit schema, never inference: inferred writes drift INT64/DOUBLE
+        # per day and typed multi-file reads then rescue-NULL whole columns
+        # (models/marts/intraday_today.sql has the post-mortem).
+        pq.write_table(pa.Table.from_pylist(rows, schema=ORDERS_SCHEMA), target)
         total += len(rows)
         emit(f"{bd}: {len(rows)} orders")
     return total

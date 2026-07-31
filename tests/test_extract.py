@@ -106,3 +106,40 @@ def test_day_has_orders_false_when_empty():
     c = ProbeClient([])
 
     assert _day_has_orders(c, date(2026, 6, 25)) is False
+
+
+def test_written_parquet_schema_is_stable_across_day_shapes(tmp_path):
+    """THE regression test for the 2026-07-31 type-drift bug: a value-only test
+    passes straight through it. Day 1 has integral amounts, zero deferred
+    selections, and no num_guests (the shapes that historically produced INT64
+    money columns and a null-typed num_guests); day 2 is a normal float day.
+    Both files must carry the identical explicit schema."""
+    import pyarrow.parquet as pq
+
+    from ingest.orders import ORDERS_SCHEMA
+
+    int_day = {
+        "guid": "o-int",
+        "businessDate": 20260625,
+        "checks": [{"amount": 10, "totalAmount": 11, "taxAmount": 1}],
+    }
+    float_day = {
+        "guid": "o-float",
+        "businessDate": 20260626,
+        "numberOfGuests": 2,
+        "checks": [
+            {
+                "amount": 10.5,
+                "totalAmount": 11.55,
+                "taxAmount": 1.05,
+                "selections": [{"price": 25.0, "deferred": True}],
+            }
+        ],
+    }
+    client = FakeClient({"20260625": [int_day], "20260626": [float_day]})
+
+    extract_range(client, date(2026, 6, 25), date(2026, 6, 26), tmp_path)
+
+    for bd in ("20260625", "20260626"):
+        schema = pq.read_schema(tmp_path / f"business_date={bd}" / "orders.parquet")
+        assert schema.equals(ORDERS_SCHEMA), f"{bd} drifted:\n{schema}"

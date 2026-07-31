@@ -498,6 +498,8 @@ gcloud run jobs update toast-sync-today --region us-central1 \
 
 Verify: `gcloud run jobs describe toast-sync-today --region us-central1 --format "value(template.template.containers[0].image)"` → `...:v2` (and same for `toast-sync`).
 
+*(AS-BUILT 2026-07-31 15:15 CT: done — build `1M40S`, digest `sha256:992227ee...`, both jobs verified on `:v2` with args intact. The `--format` path above returns empty — gcloud serves these jobs over the v1 API; the working path is `spec.template.spec.template.spec.containers[0].image`.)*
+
 - [ ] **Step 3: Rewrite the local archive** (~796 partitions, minutes):
 
 Run: `.\.venv\Scripts\python.exe -m ingest.rewrite_archive`
@@ -518,6 +520,8 @@ if ($LASTEXITCODE -ne 0) { throw "archive upload failed" }
 ```
 
 (The local root has no `business_date=20260731` dir, so today's live partition is untouched — it self-heals via the `:v2` poller, Step 5.)
+
+*(AS-BUILT: that precondition was WRONG — a stale 11-row local `business_date=20260731` existed (last order 11:34 CT). It was held out of the upload (moved aside, restored after), so the live Volume partition was never clobbered; 795 files uploaded in 4:05, max partition `20260730`. Rewrite reported exactly `718 of 796 partitions rewritten`; spot-check passed.)*
 
 - [ ] **Step 5: Today's partition on `:v2`** — during service hours the next scheduled poll (≤15 min) rewrites it; otherwise force one: `gcloud run jobs execute toast-sync-today --region us-central1 --wait` (business date stays "today" until midnight CT, so a post-close run still rewrites today's file). Expected: execution COMPLETE.
 
@@ -547,6 +551,8 @@ SELECT round(sum(net_amount - deferred_amount), 2) FROM read_files(...) WHERE NO
 vs the same expression over `bronze_orders` for the same date range — must match to the cent (the model comment's original parity method).
 
 - [ ] **Step 7: Check the checkboxes above in this plan and commit** `docs: plan progress -- v2 image live, archive rewritten + re-uploaded`.
+
+*(AS-BUILT verification, 2026-07-31 ~15:45 CT, all PASS: per-column rescued counts ALL ZERO — deferred/net/total/tax/tip/guests/checks/guid = 0 (baseline deferred=70,260; net/total/tax/tip=9). `rows=78738`, `days=796` (not 797 — the same today-partition off-by-one as Step 4's note), `any_rescued=78738` = rows: the benign `business_date` dir/file collision PERSISTS after the rewrite, so Task 6 keeps the collision paragraph and the bare `_rescued_data IS NOT NULL → 0` form remains unachievable — the per-column form above is the verification of record. Value parity read_files vs bronze (business_date < 20260731): `2017126.54` both — to the cent. Today typed read: 60 orders, `$1228.41` net-of-deferred. First `:v2` poll: execution `toast-sync-today-2gj8v`, 15:30:27–15:31:48 CT.)*
 
 ### Task 6: remove the rescue coalesce from `intraday_today` (exit condition met)
 

@@ -4,6 +4,7 @@ in place with ORDERS_SCHEMA. Legacy shapes covered: INT64 money columns
 null-typed columns (all-None days). Values must be preserved exactly."""
 
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 from ingest.orders import ORDERS_SCHEMA
@@ -39,19 +40,28 @@ def _write_legacy(path, rows):
 
 def test_rewrite_partition_coerces_legacy_types_and_preserves_values(tmp_path):
     target = tmp_path / "business_date=20260625" / "orders.parquet"
-    _write_legacy(target, [_legacy_row()])
-    assert not pq.read_schema(target).equals(ORDERS_SCHEMA)  # proves fixture is legacy
+    # Two rows so pandas promotes num_guests (int + None) to float64 -- the
+    # shape most of the real archive carries. A lone all-None row would write a
+    # null-typed column instead and leave the float64->int64 cast untested.
+    _write_legacy(target, [_legacy_row(), _legacy_row(order_guid="o2", num_guests=2)])
+    legacy = pq.read_schema(target)
+    assert not legacy.equals(ORDERS_SCHEMA)  # proves fixture is legacy
+    assert legacy.field("num_guests").type == pa.float64()
 
     assert rewrite_partition(target) is True
 
     assert pq.read_schema(target).equals(ORDERS_SCHEMA)
-    row = pq.ParquetFile(target).read().to_pylist()[0]
+    rows = pq.ParquetFile(target).read().to_pylist()
+    row = rows[0]
     assert row["net_amount"] == 10.0 and isinstance(row["net_amount"], float)
     assert row["deferred_amount"] == 0.0
     assert row["num_guests"] is None
     assert row["dining_option_guid"] is None
     assert row["order_guid"] == "o1"
     assert row["voided"] is False
+    # float64 -> int64 narrowing keeps the count exact and Python-int typed
+    assert rows[1]["order_guid"] == "o2"
+    assert rows[1]["num_guests"] == 2 and isinstance(rows[1]["num_guests"], int)
 
 
 def test_rewrite_partition_skips_already_conforming_files(tmp_path):

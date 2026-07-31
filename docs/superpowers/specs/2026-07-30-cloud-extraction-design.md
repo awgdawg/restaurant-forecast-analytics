@@ -181,10 +181,12 @@ Databricks job run in between.
 that `ingest/orders.py` writes `deferred_amount` as INT64 on days with no
 deferred selections and DOUBLE on days with one, so `read_files` type inference
 diverts one half of the files to `_rescued_data` — silently NULLing net sales.
-The view carries a `coalesce(deferred_amount, try_cast(get_json_object(
-_rescued_data, '$.deferred_amount') as double), 0)` rescue that recovers both
+The view initially carried a `coalesce(deferred_amount, try_cast(get_json_object(
+_rescued_data, '$.deferred_amount') as double), 0)` rescue that recovered both
 file shapes (verified against `bronze_orders` across all 792 shared dates, max
-abs diff 0.00) and documents the mechanism in comments. The writer fix —
-explicit-schema parquet plus a rewrite of the ~790 existing partitions — is
-queued as a separate task; fixing the writer alone would leave every historical
-file INT64.
+abs diff 0.00). *(RESOLVED 2026-07-31, `parquet-schema-fix` branch: the writer
+now pins an explicit schema — `ingest/orders.py::ORDERS_SCHEMA`, applied in
+`ingest/extract.py` — all 718 drifted partitions were rewritten and re-uploaded,
+both Cloud Run jobs moved to the `:v2` image, and the rescue coalesce was
+removed from the view after live verification showed zero rescued values in
+every data column.)*

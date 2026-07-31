@@ -20,18 +20,23 @@ with today as (
 -- read_files over the partitioned root infers ONE business_date (from the
 -- directory name, as INT); the copy inside each parquet file loses the
 -- collision and is diverted to the rescued-data column (verified live
--- 2026-07-31: still true after the schema fix below). Values agree, so the
--- derived one is authoritative -- we only widen it to BIGINT to match
--- forecast_date.
+-- 2026-07-31: still true after the schema fix described below). Values
+-- agree, so the derived one is authoritative -- we only widen it to BIGINT
+-- to match forecast_date.
 --
 -- HISTORY (2026-07-31): deferred_amount used to need a _rescued_data
--- coalesce here -- inference-typed writes (ingest/extract.py, pre-fix) made
--- it INT64 on zero-deferred days and DOUBLE elsewhere, so the typed read
--- rescue-NULLed 718 of 796 days' files. Fixed at the writer (explicit
--- ORDERS_SCHEMA, ingest/orders.py) and the whole archive was rewritten +
--- re-uploaded the same day; verified zero rescued values across all data
--- columns. If deferred_amount ever NULLs here again, look for a writer
--- bypassing ORDERS_SCHEMA before touching this view.
+-- coalesce here -- inference-typed writes (pre-fix) made it INT64 on
+-- zero-deferred days and DOUBLE elsewhere, so the typed read rescue-NULLed
+-- 718 of 796 days' files (schemaHints and the direct parquet.`path` reader
+-- were both dead ends -- see git history of this file for the full
+-- mechanism). Fixed at the writer (explicit ORDERS_SCHEMA in
+-- ingest/orders.py, applied at the write site in ingest/extract.py) and the
+-- whole archive was rewritten + re-uploaded the same day; verified zero
+-- rescued values across all data columns. If net_sales_so_far ever
+-- collapses to 0 while order_count stays non-zero, deferred_amount is
+-- rescue-NULLing again (sum() returns NULL over the all-NULL day and the
+-- outer coalesce hides it as 0) -- look for a writer bypassing
+-- ORDERS_SCHEMA before touching this view.
 raw_orders as (
     select
         cast(business_date as bigint) as business_date,

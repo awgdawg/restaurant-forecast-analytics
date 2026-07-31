@@ -1,0 +1,73 @@
+name: Toast extract (manual fallback)
+# EMERGENCY FALLBACK, manual dispatch only. Primary extraction runs on GCP
+# Cloud Run (docs/superpowers/specs/2026-07-30-cloud-extraction-design.md);
+# use this when Cloud Run is down or a gap needs backfilling and no local
+# machine is handy. Requires TOAST_* Actions secrets (in addition to the
+# DATABRICKS_* pair CI already uses).
+#
+# Why extraction cannot run on Databricks itself: serverless egress is
+# DNS-allowlisted (pypi + *.googleapis.com resolve, the open internet does
+# not; no account-level lever changes it), and classic compute is unavailable
+# -- clusters/create returns "does not have any associated worker
+# environments" (verified 2026-07-30).
+on:
+  workflow_dispatch:
+    inputs:
+      refresh_days:
+        description: 'Business days back from yesterday to re-pull'
+        required: false
+        default: '3'
+
+# Least-privilege token: this workflow reads the repo and writes only to Databricks.
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+      - run: pip install -e .
+      - uses: databricks/setup-cli@main
+
+      # --refresh-days N bypasses auto-detect entirely (start = yesterday - N + 1)
+      # and implies --overwrite, so a stateless runner with an empty out-dir pulls
+      # exactly N days -- never a full backfill -- and still captures Toast's
+      # post-close edits (refunds, tip adjustments) that change values without
+      # changing row counts.
+      - name: Extract Toast orders
+        env:
+          TOAST_CLIENT_ID: ${{ secrets.TOAST_CLIENT_ID }}
+          TOAST_CLIENT_SECRET: ${{ secrets.TOAST_CLIENT_SECRET }}
+          TOAST_RESTAURANT_GUID: ${{ secrets.TOAST_RESTAURANT_GUID }}
+        run: |
+          python -m ingest.extract \
+            --refresh-days "${{ inputs.refresh_days || '3' }}" \
+            --out-dir raw_out
+
+      # Zero partitions means every day in the window came back empty. The
+      # restaurant closes Mondays only, so a 3-day window should never be empty;
+      # treat it as a failure rather than reporting a green run that shipped
+      # nothing (the 2026-07 incident was a silent no-op, not a red run).
+      - name: Upload partitions to the UC Volume
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          shopt -s nullglob
+          parts=(raw_out/business_date=*)
+          if [ ${#parts[@]} -eq 0 ]; then
+            echo "::error::Extract produced no partitions -- no orders in the window"
+            exit 1
+          fi
+          for p in "${parts[@]}"; do
+            bd=$(basename "$p")
+            databricks fs cp -r --overwrite "$p" \
+              "dbfs:/Volumes/workspace/default/raw_orders/$bd"
+            echo "uploaded $bd"
+          done

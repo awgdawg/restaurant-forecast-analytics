@@ -40,13 +40,16 @@ def _write_legacy(path, rows):
 
 def test_rewrite_partition_coerces_legacy_types_and_preserves_values(tmp_path):
     target = tmp_path / "business_date=20260625" / "orders.parquet"
-    # Two rows so pandas promotes num_guests (int + None) to float64 -- the
-    # shape most of the real archive carries. A lone all-None row would write a
-    # null-typed column instead and leave the float64->int64 cast untested.
+    # Two rows because pandas promotes an int + None column to float64, and a
+    # lone all-None row would write a null-typed column instead -- one row alone
+    # would never exercise the float64->int64 cast. This shape is a
+    # migration-safety case, not a production one: the real archive's drift is
+    # entirely money-column int64, with num_guests int64 on all 796 days.
     _write_legacy(target, [_legacy_row(), _legacy_row(order_guid="o2", num_guests=2)])
     legacy = pq.read_schema(target)
     assert not legacy.equals(ORDERS_SCHEMA)  # proves fixture is legacy
     assert legacy.field("num_guests").type == pa.float64()
+    assert legacy.field("dining_option_guid").type == pa.null()  # all-None column
 
     assert rewrite_partition(target) is True
 
@@ -64,14 +67,20 @@ def test_rewrite_partition_coerces_legacy_types_and_preserves_values(tmp_path):
     assert rows[1]["num_guests"] == 2 and isinstance(rows[1]["num_guests"], int)
 
 
-def test_rewrite_partition_skips_already_conforming_files(tmp_path):
+def _must_not_write(*args, **kwargs):
+    raise AssertionError("a conforming partition must not be rewritten")
+
+
+def test_rewrite_partition_skips_already_conforming_files(tmp_path, monkeypatch):
     target = tmp_path / "business_date=20260626" / "orders.parquet"
     _write_legacy(target, [_legacy_row(business_date=20260626)])
     rewrite_partition(target)
-    mtime = target.stat().st_mtime_ns
 
+    # Structural, not mtime-based: Windows clock granularity lets an unchanged
+    # -mtime assert pass even when the file WAS rewritten. Patching write_table
+    # proves the second call short-circuits on the schema check instead.
+    monkeypatch.setattr("ingest.rewrite_archive.pq.write_table", _must_not_write)
     assert rewrite_partition(target) is False  # idempotent: no second write
-    assert target.stat().st_mtime_ns == mtime
 
 
 def test_rewrite_root_reports_rewritten_partitions(tmp_path):

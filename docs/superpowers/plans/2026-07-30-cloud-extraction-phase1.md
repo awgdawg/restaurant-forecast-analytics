@@ -216,6 +216,14 @@ def upload_partitions(
 
 ## Task 2: `ingest/sync.py` — extract-then-upload entry point (TDD)
 
+> **AMENDMENT (2026-07-30, controller):** adopt the empty-window failure guard
+> from the salvaged fallback workflow: in `--refresh-days` mode, ZERO uploaded
+> partitions across the window is a FAILURE (`sys.exit(1)` after an error
+> message) — the restaurant closes only Mondays, so a ≥2-day window can never
+> be legitimately empty, and the 2026-07 incident was a silent no-op, not a
+> red run. In `--today` mode an empty result is legitimate (pre-open, Monday)
+> and exits 0. Add tests for both behaviors.
+
 **Files:** Create `ingest/sync.py`, `tests/test_sync.py`.
 
 - [ ] **Step 1: Failing tests** — `tests/test_sync.py`:

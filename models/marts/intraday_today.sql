@@ -19,29 +19,19 @@ with today as (
 
 -- read_files over the partitioned root infers ONE business_date (from the
 -- directory name, as INT); the copy inside each parquet file loses the
--- collision and is diverted to _rescued_data. Values agree, so the derived
--- one is authoritative -- we only widen it to BIGINT to match forecast_date.
+-- collision and is diverted to the rescued-data column (verified live
+-- 2026-07-31: still true after the schema fix below). Values agree, so the
+-- derived one is authoritative -- we only widen it to BIGINT to match
+-- forecast_date.
 --
--- deferred_amount needs the same rescue treatment for a subtler reason:
--- ingest.orders._deferred_amount returns int 0 when a day has no deferred
--- selections, so those days' parquet files carry INT64 where days with a real
--- gift-card sale carry DOUBLE. Inference picks DOUBLE, and every INT64 file
--- then fails the typed read and lands in _rescued_data as NULL -- silently
--- turning net sales into NULL. schemaHints cannot fix this (hinting either
--- type just moves the mismatch to the other half of the files; the direct
--- parquet.`path` reader errors outright with
--- PARQUET_COLUMN_DATA_TYPE_MISMATCH). Reading the typed column first and
--- falling back to the rescued JSON covers both file shapes: verified against
--- bronze_orders over all 792 shared dates, max abs diff 0.00. The fallback is
--- direction-agnostic on purpose -- it recovers the value whichever type
--- inference happens to pick, which stops mattering only in theory and starts
--- mattering once the partition count passes read_files' inference sample cap
--- (~1000 files, so around mid-2027) and the sampled majority can flip.
--- EXIT CONDITION: drop this coalesce only once ingest/orders.py writes
--- explicit-schema parquet AND the ~790 existing partitions have been
--- rewritten -- fixing the writer alone leaves every historical file INT64.
--- rescuedDataColumn is pinned below rather than left to its default, since
--- this expression load-bears on that column existing.
+-- HISTORY (2026-07-31): deferred_amount used to need a _rescued_data
+-- coalesce here -- inference-typed writes (ingest/extract.py, pre-fix) made
+-- it INT64 on zero-deferred days and DOUBLE elsewhere, so the typed read
+-- rescue-NULLed 718 of 796 days' files. Fixed at the writer (explicit
+-- ORDERS_SCHEMA, ingest/orders.py) and the whole archive was rewritten +
+-- re-uploaded the same day; verified zero rescued values across all data
+-- columns. If deferred_amount ever NULLs here again, look for a writer
+-- bypassing ORDERS_SCHEMA before touching this view.
 raw_orders as (
     select
         cast(business_date as bigint) as business_date,
@@ -49,17 +39,12 @@ raw_orders as (
         opened_date,
         num_guests,
         net_amount,
-        coalesce(
-            deferred_amount,
-            try_cast(get_json_object(_rescued_data, '$.deferred_amount') as double),
-            0
-        ) as deferred_amount,
+        deferred_amount,
         voided,
         deleted
     from read_files(
         '/Volumes/workspace/default/raw_orders/',
-        format => 'parquet',
-        rescuedDataColumn => '_rescued_data'
+        format => 'parquet'
     )
 ),
 

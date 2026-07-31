@@ -47,14 +47,16 @@ def _is_live(node: dict) -> bool:
 
 def _deferred_amount(live_checks: list[dict]) -> float:
     """Sum prices of deferred (e.g. gift-card) selections — excluded from net sales."""
-    return round(
-        sum(
-            (s.get("price") or 0.0)
-            for c in live_checks
-            for s in (c.get("selections") or [])
-            if s.get("deferred") and not s.get("voided")
-        ),
-        4,
+    return float(
+        round(
+            sum(
+                (s.get("price") or 0.0)
+                for c in live_checks
+                for s in (c.get("selections") or [])
+                if s.get("deferred") and not s.get("voided")
+            ),
+            4,
+        )
     )
 
 
@@ -64,15 +66,17 @@ def flatten_order(order: dict) -> dict:
     live_checks = [c for c in checks if _is_live(c)]
 
     def _sum(field: str) -> float:
-        return round(sum((c.get(field) or 0.0) for c in live_checks), 4)
+        return float(round(sum((c.get(field) or 0.0) for c in live_checks), 4))
 
-    tip_amount = round(
-        sum(
-            (p.get("tipAmount") or 0.0)
-            for c in live_checks
-            for p in (c.get("payments") or [])
-        ),
-        4,
+    tip_amount = float(
+        round(
+            sum(
+                (p.get("tipAmount") or 0.0)
+                for c in live_checks
+                for p in (c.get("payments") or [])
+            ),
+            4,
+        )
     )
 
     dining_option = order.get("diningOption") or {}

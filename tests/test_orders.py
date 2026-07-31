@@ -123,3 +123,38 @@ def test_orders_schema_mirrors_bronze_ddl():
     # so a field added to flatten_order without touching COLUMNS/_DDL_TYPES would
     # vanish from every written parquet with no error anywhere.
     assert list(flatten_order(FIXTURE)) == ORDERS_SCHEMA.names
+
+
+def test_money_fields_are_floats_even_from_integral_inputs():
+    """Toast can send whole-dollar amounts as JSON ints; round(int, n) stays
+    int, which is the writer-side half of the INT64/DOUBLE parquet drift."""
+    order = {
+        "guid": "o-int",
+        "businessDate": 20260701,
+        "checks": [
+            {
+                "amount": 10,
+                "totalAmount": 11,
+                "taxAmount": 1,
+                "payments": [{"tipAmount": 2}],
+                "selections": [{"price": 5, "deferred": True}],
+            }
+        ],
+    }
+    row = flatten_order(order)
+    for field in (
+        "net_amount",
+        "total_amount",
+        "tax_amount",
+        "tip_amount",
+        "deferred_amount",
+    ):
+        assert isinstance(row[field], float), field
+
+
+def test_money_fields_are_floats_on_empty_sums():
+    """Zero-deferred / zero-payment days sum empty iterables -> int 0 today."""
+    order = {"guid": "o-empty", "businessDate": 20260701, "checks": [{"amount": 10.5}]}
+    row = flatten_order(order)
+    assert isinstance(row["deferred_amount"], float)
+    assert isinstance(row["tip_amount"], float)

@@ -182,8 +182,12 @@ No repo changes. Run only when the restaurant is open (Tue–Sun, after opening)
 - [ ] In the AI/BI dashboard: new dataset `SELECT * FROM workspace.default_marts.intraday_today`. Add: counter `net_sales_so_far` (currency, title "Today so far"), counter `pct_of_forecast` (suffix %, title "of today's forecast"), counter `order_count` ("Orders today"). Optional context: small text widget "refreshes every 15 min during service hours". Optional hourly bar (second dataset, inline SQL — adapt the FROM clause to Task 1's spike result):
 
 ```sql
+-- AMENDED per Task 1 spike: deferred_amount is INT64 in zero-deferred
+-- partitions and DOUBLE elsewhere, so read_files rescues it on mismatched
+-- files -- recover it from _rescued_data exactly as intraday_today does.
 SELECT hour(from_utc_timestamp(to_timestamp(opened_date), 'America/Chicago')) AS hr,
-       round(sum(net_amount - deferred_amount), 2) AS net_sales
+       round(sum(net_amount) - sum(coalesce(deferred_amount,
+         try_cast(get_json_object(_rescued_data, '$.deferred_amount') AS double), 0)), 2) AS net_sales
 FROM read_files('/Volumes/workspace/default/raw_orders/', format => 'parquet')
 WHERE business_date = cast(date_format(from_utc_timestamp(current_timestamp(), 'America/Chicago'), 'yyyyMMdd') as bigint)
   AND NOT voided AND NOT deleted

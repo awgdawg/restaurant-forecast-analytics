@@ -11,6 +11,9 @@ from pathlib import Path
 import pandas as pd
 import pyarrow.parquet as pq
 
+# COLUMNS (names AND order) and _DDL_TYPES below are both mirrored by
+# ingest/orders.py::ORDERS_SCHEMA (parquet) -- keep all three in sync;
+# tests/test_orders.py::test_orders_schema_mirrors_bronze_ddl enforces it.
 COLUMNS = [
     "business_date",
     "order_guid",
@@ -29,8 +32,6 @@ COLUMNS = [
     "deleted",
 ]
 
-# Mirrored by ingest/orders.py::ORDERS_SCHEMA (parquet) -- keep in sync;
-# tests/test_orders.py::test_orders_schema_mirrors_bronze_ddl enforces it.
 _DDL_TYPES = {
     "business_date": "BIGINT",
     "order_guid": "STRING",

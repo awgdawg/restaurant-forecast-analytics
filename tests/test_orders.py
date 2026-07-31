@@ -1,7 +1,10 @@
 import json
 from pathlib import Path
 
-from ingest.orders import flatten_order
+import pyarrow as pa
+
+from ingest.orders import ORDERS_SCHEMA, flatten_order
+from load.load_to_delta import COLUMNS, _DDL_TYPES
 
 FIXTURE = json.loads(
     (Path(__file__).parent / "fixtures" / "sample_order.json").read_text()
@@ -104,11 +107,6 @@ def test_orders_schema_mirrors_bronze_ddl():
     """ORDERS_SCHEMA and load_to_delta's bronze DDL must agree by construction:
     same columns, same order, corresponding types. INT is widened to int64 in
     parquet (safe: bronze ingests via SQL INSERT, not direct parquet load)."""
-    import pyarrow as pa
-
-    from ingest.orders import ORDERS_SCHEMA
-    from load.load_to_delta import COLUMNS, _DDL_TYPES
-
     ddl_to_arrow = {
         "BIGINT": pa.int64(),
         "INT": pa.int64(),
@@ -120,3 +118,8 @@ def test_orders_schema_mirrors_bronze_ddl():
     for name in COLUMNS:
         assert ORDERS_SCHEMA.field(name).type == ddl_to_arrow[_DDL_TYPES[name]], name
         assert ORDERS_SCHEMA.field(name).nullable, name
+    # ...and the schema must match what the builder actually emits. Order-sensitive
+    # on purpose: pa.Table.from_pylist silently drops keys absent from the schema,
+    # so a field added to flatten_order without touching COLUMNS/_DDL_TYPES would
+    # vanish from every written parquet with no error anywhere.
+    assert list(flatten_order(FIXTURE)) == ORDERS_SCHEMA.names

@@ -2,6 +2,8 @@
 
 The output dict is built from a fixed set of keys and only reads non-PII fields,
 so customer contact, delivery address, and card data cannot appear downstream.
+This module also owns ORDERS_SCHEMA, the authoritative parquet schema those rows
+are written with.
 """
 
 from __future__ import annotations
@@ -14,7 +16,10 @@ import pyarrow as pa
 # INT64/DOUBLE across days and got rescue-NULLed by typed multi-file reads
 # (see models/marts/intraday_today.sql, 2026-07-31). Money is float64 even
 # when a day's sums are integral; num_guests stays a nullable int64 even on
-# all-None days (inference makes those null-typed).
+# all-None days (inference makes those null-typed). Every column is nullable by
+# intent, matching the bronze DDL, which declares no NOT NULL: Toast omits
+# optional fields (num_guests, closed_date on open orders) and a non-nullable
+# write would fail the day rather than land the row.
 ORDERS_SCHEMA = pa.schema(
     [
         ("business_date", pa.int64()),

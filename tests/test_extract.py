@@ -1,8 +1,10 @@
 from datetime import date
 
 import pandas as pd
+import pyarrow.parquet as pq
 
 from ingest.extract import _day_has_orders, extract_range
+from ingest.orders import ORDERS_SCHEMA
 
 
 class FakeClient:
@@ -110,22 +112,25 @@ def test_day_has_orders_false_when_empty():
 
 def test_written_parquet_schema_is_stable_across_day_shapes(tmp_path):
     """THE regression test for the 2026-07-31 type-drift bug: a value-only test
-    passes straight through it. Day 1 has integral amounts, zero deferred
-    selections, and no num_guests (the shapes that historically produced INT64
-    money columns and a null-typed num_guests); day 2 is a normal float day.
-    Both files must carry the identical explicit schema."""
-    import pyarrow.parquet as pq
-
-    from ingest.orders import ORDERS_SCHEMA
-
+    passes straight through it. Day 1 carries the shapes that historically
+    drifted — integral amounts, zero deferred selections, and no num_guests;
+    day 2 is a normal float day. Task 2's float() already de-fangs the
+    integral-money half at the writer, so under a revert the discriminating
+    failure is the columns Toast left absent (closed_date, dining_option_guid,
+    num_guests) inferring null-typed instead of string/int64. Both files must
+    carry the identical explicit schema."""
     int_day = {
         "guid": "o-int",
         "businessDate": 20260625,
+        "openedDate": "2026-06-25T17:00:00.000+0000",
+        "source": "In Store",
         "checks": [{"amount": 10, "totalAmount": 11, "taxAmount": 1}],
     }
     float_day = {
         "guid": "o-float",
         "businessDate": 20260626,
+        "openedDate": "2026-06-26T17:00:00.000+0000",
+        "source": "In Store",
         "numberOfGuests": 2,
         "checks": [
             {
@@ -141,5 +146,11 @@ def test_written_parquet_schema_is_stable_across_day_shapes(tmp_path):
     extract_range(client, date(2026, 6, 25), date(2026, 6, 26), tmp_path)
 
     for bd in ("20260625", "20260626"):
-        schema = pq.read_schema(tmp_path / f"business_date={bd}" / "orders.parquet")
-        assert schema.equals(ORDERS_SCHEMA), f"{bd} drifted:\n{schema}"
+        path = tmp_path / f"business_date={bd}" / "orders.parquet"
+        assert pq.read_schema(path).equals(
+            ORDERS_SCHEMA
+        ), f"{bd} drifted:\n{pq.read_schema(path)}"
+        if bd == "20260625":  # ints widened to float64 without losing value
+            # ParquetFile, not read_table: the latter reads the business_date=
+            # dir as a Hive partition key and collides with the real column.
+            assert pq.ParquetFile(path).read().to_pylist()[0]["net_amount"] == 10.0

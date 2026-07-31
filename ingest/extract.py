@@ -116,7 +116,10 @@ def extract_range(
         part.mkdir(parents=True, exist_ok=True)
         # Explicit schema, never inference: inferred writes drift INT64/DOUBLE
         # per day and typed multi-file reads then rescue-NULL whole columns
-        # (models/marts/intraday_today.sql has the post-mortem).
+        # (models/marts/intraday_today.sql has the post-mortem). from_pylist
+        # cuts the other way too: row keys absent from the schema are dropped
+        # silently, so a new flatten_order field lands only once it is added to
+        # ORDERS_SCHEMA as well -- test_orders_schema_mirrors_bronze_ddl guards it.
         pq.write_table(pa.Table.from_pylist(rows, schema=ORDERS_SCHEMA), target)
         total += len(rows)
         emit(f"{bd}: {len(rows)} orders")

@@ -73,9 +73,11 @@ manual dispatch, needs `TOAST_*` secrets). The bundle's own `extract` task stays
 out.
 
 `publish` (`publish/to_sheets.py`) mirrors `forecast_vs_actuals` and `model_metrics` into a
-Google Sheet for Tableau Public to sync from; dashboard work is next (no dashboard exists
-yet). Throughout, entry points read config from the environment first and fall back to the
-`restaurant-forecast` Databricks secret scope in-cloud, so no secrets live in the repo.
+Google Sheet for Tableau Public to sync from. An internal AI/BI dashboard in the workspace
+serves the owner day-to-day, including a live "Today" tile over `intraday_today` (sales so
+far vs. forecast, current to the 15-minute poll); a public Tableau dashboard remains a
+future step. Throughout, entry points read config from the environment first and fall back
+to the `restaurant-forecast` Databricks secret scope in-cloud, so no secrets live in the repo.
 
 ### Deploying the bundle (prod)
 

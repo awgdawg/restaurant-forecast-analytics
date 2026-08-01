@@ -2,8 +2,9 @@
 scripts/morning_extract.ps1. Runs anywhere with open egress (Cloud Run).
 
 Modes:
-  rfa-sync --refresh-days 3   # daily self-healing window (ends yesterday)
-  rfa-sync --today            # intraday: current business date only
+  rfa-sync --refresh-days 3                  # daily self-healing window (ends yesterday)
+  rfa-sync --refresh-days 3 --through-today  # evening run: window ends today (post-close)
+  rfa-sync --today                           # intraday: current business date only
 """
 
 from __future__ import annotations
@@ -31,11 +32,20 @@ def business_today(now_fn=None) -> date:
     return now.date()
 
 
-def sync_window(refresh_days: int, today_mode: bool, today: date) -> tuple[date, date]:
-    """Inclusive [start, end] to extract and upload."""
+def sync_window(
+    refresh_days: int, today_mode: bool, today: date, through_today: bool = False
+) -> tuple[date, date]:
+    """Inclusive [start, end] to extract and upload.
+
+    through_today shifts the refresh window to end today instead of yesterday
+    (same day-count; the whole window moves a day forward, so each business
+    date's FINAL re-pull happens ~12h earlier than in the morning regime --
+    pick N with that in mind) -- for post-close evening runs, where the day
+    just finished is the one that most needs pulling.
+    """
     if today_mode:
         return today, today
-    end = today - timedelta(days=1)
+    end = today if through_today else today - timedelta(days=1)
     return end - timedelta(days=refresh_days - 1), end
 
 
@@ -57,14 +67,23 @@ def main(argv=None) -> None:
     mode.add_argument(
         "--today", action="store_true", help="pull only the current business date"
     )
+    parser.add_argument(
+        "--through-today",
+        action="store_true",
+        help="end the refresh window today instead of yesterday (post-close evening runs)",
+    )
     parser.add_argument("--out-dir", default="data/raw/orders")
     parser.add_argument("--volume-root", default=DEFAULT_VOLUME_ROOT)
     args = parser.parse_args(argv)
     if not args.today and (args.refresh_days is None or args.refresh_days < 1):
         parser.error("--refresh-days must be >= 1")
+    if args.through_today and args.today:
+        parser.error("--through-today cannot be combined with --today")
 
     load_dotenv()
-    start, end = sync_window(args.refresh_days or 0, args.today, business_today())
+    start, end = sync_window(
+        args.refresh_days or 0, args.today, business_today(), args.through_today
+    )
     client = ToastClient(load_toast_config())
     out_dir = Path(args.out_dir)
     print(f"Syncing {start.isoformat()} -> {end.isoformat()}")

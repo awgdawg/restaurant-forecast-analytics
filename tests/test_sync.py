@@ -34,6 +34,19 @@ def test_sync_window_today_mode_is_single_day():
     assert (start, end) == (date(2026, 7, 30), date(2026, 7, 30))
 
 
+def test_sync_window_through_today_ends_today():
+    # Evening (post-close) semantics: same N-day depth, shifted to end today.
+    start, end = sync_window(3, False, date(2026, 7, 30), through_today=True)
+    assert (start, end) == (date(2026, 7, 28), date(2026, 7, 30))
+
+
+def test_sync_window_today_mode_ignores_through_today():
+    # The CLI rejects the combination, but sync_window is a public function:
+    # today_mode must win regardless of through_today.
+    start, end = sync_window(0, True, date(2026, 7, 30), through_today=True)
+    assert (start, end) == (date(2026, 7, 30), date(2026, 7, 30))
+
+
 def test_business_today_uses_chicago_clock():
     from datetime import datetime
     from zoneinfo import ZoneInfo
@@ -96,6 +109,17 @@ def test_main_rejects_zero_refresh_days(capsys):
     assert "--refresh-days must be >= 1" in capsys.readouterr().err
 
 
+def test_main_rejects_zero_refresh_days_with_through_today(capsys):
+    # The depth check must fire even with --through-today: past it,
+    # refresh_days=0 would compute an INVERTED window (end=today,
+    # start=today+1) and die later with a nonsense empty-window error.
+    from ingest.sync import main
+
+    with pytest.raises(SystemExit):
+        main(["--refresh-days", "0", "--through-today"])
+    assert "--refresh-days must be >= 1" in capsys.readouterr().err
+
+
 def test_refresh_mode_zero_partitions_is_a_failure(monkeypatch, tmp_path, capsys):
     # A >=2-day window can never be legitimately empty (Mondays are the only
     # closure), so zero uploads means extraction broke -- fail loudly.
@@ -134,3 +158,65 @@ def test_today_mode_zero_partitions_exits_normally(monkeypatch, tmp_path):
     from ingest.sync import main
 
     assert main(["--today", "--out-dir", str(tmp_path)]) is None
+
+
+def test_main_through_today_extends_window_to_today(monkeypatch, tmp_path):
+    # Pins BOTH halves of the wiring: the extract window ends today AND the
+    # upload day list includes today -- either could regress independently,
+    # and a dropped upload day would silently stop shipping today's partition.
+    calls = {}
+    monkeypatch.setattr("ingest.sync.load_toast_config", lambda: {"fake": "cfg"})
+    monkeypatch.setattr("ingest.sync.ToastClient", lambda cfg: "fake-client")
+    monkeypatch.setattr(
+        "ingest.sync.business_today", lambda now_fn=None: date(2026, 7, 30)
+    )
+
+    def fake_extract(client, start, end, out_dir, *, overwrite, log):
+        calls["window"] = (start, end)
+        return 42
+
+    def fake_upload(root, days, volume_root, *, log):
+        calls["days"] = days
+        return 2
+
+    monkeypatch.setattr("ingest.sync.extract_range", fake_extract)
+    monkeypatch.setattr("ingest.sync.upload_partitions", fake_upload)
+
+    from ingest.sync import main
+
+    main(["--refresh-days", "2", "--through-today", "--out-dir", str(tmp_path)])
+    assert calls["window"] == (date(2026, 7, 29), date(2026, 7, 30))
+    assert calls["days"] == [date(2026, 7, 29), date(2026, 7, 30)]
+
+
+def test_main_rejects_through_today_with_today_mode(capsys):
+    # --through-today modifies the refresh window; with --today it is at best
+    # a no-op and at worst a sign the caller misunderstands the modes. The
+    # message must name the actual conflict: saying "requires --refresh-days"
+    # would send the operator into the mutually-exclusive-group error instead.
+    from ingest.sync import main
+
+    with pytest.raises(SystemExit):
+        main(["--today", "--through-today"])
+    assert "--through-today cannot be combined with --today" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "rows,uploaded",
+    [(0, 3), (1234, 0)],
+    ids=["stale-partitions", "cold-working-dir"],
+)
+def test_through_today_refresh_is_still_guarded(
+    monkeypatch, tmp_path, capsys, rows, uploaded
+):
+    # The evening window includes today, but it is still refresh mode: BOTH
+    # guard arms must trip. A mutant exempting --through-today from either
+    # arm would let a broken evening run report success.
+    _stub_pipeline(monkeypatch, rows=rows, uploaded=uploaded)
+
+    from ingest.sync import main
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--refresh-days", "3", "--through-today", "--out-dir", str(tmp_path)])
+    assert excinfo.value.code == 1
+    assert "ERROR" in capsys.readouterr().err

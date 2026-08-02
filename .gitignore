@@ -45,3 +45,6 @@ logs/
 Thumbs.db
 .idea/
 .vscode/
+# Local Claude Code config (command allowlist) — machine-specific tooling, not
+# project source. Plans/specs under docs/superpowers/ stay tracked.
+.claude/

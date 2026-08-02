@@ -1,8 +1,16 @@
-# INTERIM (2026-07-06): local Toast extract + Volume upload.
-# The trial workspace's serverless egress allowlist blocks the Toast API, so
-# this runs on the local machine (Windows Task Scheduler, daily 08:45) until
-# Databricks enables full egress -- then the bundle's in-cloud extract task is
-# re-enabled and this script + its scheduled task are deleted.
+# MANUAL FALLBACK (retired from scheduling 2026-08-02): local Toast extract +
+# Volume upload. The scheduled daily extract now runs on GCP Cloud Run
+# (`rfa-sync`, 08:30 CT); the Windows Task Scheduler entry that ran this at 08:45
+# is disabled, not deleted. Kept because it is the proven gap-backfill tool --
+# run it by hand to re-pull and re-upload the trailing 3 days when the cloud lane
+# misses a morning. Uploads overwrite, so running it alongside Cloud Run is safe.
+#
+#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\morning_extract.ps1
+#
+# Original context: the trial workspace's serverless egress allowlist blocks the
+# Toast API, so extraction cannot run inside Databricks at all -- it moved to
+# Cloud Run rather than in-cloud. If Databricks ever enables full egress, the
+# bundle's in-cloud extract task can be re-enabled and both local paths dropped.
 $ErrorActionPreference = "Stop"
 Set-Location "E:\PyProj\restaurant-forecast-analytics"
 Start-Transcript -Path "logs\morning_extract.log" -Append

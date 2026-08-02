@@ -65,12 +65,17 @@ reads through instead —
 partition directly with `read_files` and joins today's forecast — so a dashboard tile
 stays current to within the polling interval with **zero extra Databricks job runs**.
 
-Two extractors remain as break-glass, neither of them the scheduled path:
+The PC path is retired. Cloud Run and the PC job ran in parallel for two mornings and
+produced identical partitions (334 then 418 rows across the same 3 partitions), after
+which the `restaurant-forecast-morning-extract` Windows Task Scheduler entry was
+**disabled, not deleted** — re-enable it with `schtasks /change /tn
+"restaurant-forecast-morning-extract" /enable` if the cloud lane ever needs a stand-in.
+
+Two extractors therefore remain as break-glass, neither of them the scheduled path:
 `scripts/morning_extract.ps1` (local, manual — the original PC job, still the proven
-gap-backfill tool; its Windows Task Scheduler entry retires at the end of the Cloud Run
-parity run) and [`.github/workflows/extract.yml`](.github/workflows/extract.yml) (Actions
-manual dispatch, needs `TOAST_*` secrets). The bundle's own `extract` task stays commented
-out.
+gap-backfill tool) and [`.github/workflows/extract.yml`](.github/workflows/extract.yml)
+(Actions manual dispatch, needs `TOAST_*` secrets). The bundle's own `extract` task stays
+commented out.
 
 `publish` (`publish/to_sheets.py`) mirrors `forecast_vs_actuals` and `model_metrics` into a
 Google Sheet for Tableau Public to sync from. An internal AI/BI dashboard in the workspace

@@ -32,7 +32,7 @@ The forecast now lands in the lakehouse itself — `forecast_daily_sales` + `mod
 Delta tables and a `forecast_vs_actuals` dbt view — and the nightly pipeline is defined
 as code in a Databricks Asset Bundle ([`databricks.yml`](databricks.yml)). The
 `restaurant-forecast-nightly` job runs four serverless tasks in order —
-`load` → `dbt_build` → `forecast` → `publish` — on a 09:15 America/Chicago schedule
+`load` → `dbt_build` → `forecast` → `publish` — on a 21:45 America/Chicago schedule
 (unpaused in the `prod` target). See the
 [cloud design spec](docs/superpowers/specs/2026-06-29-databricks-cloud-pipeline-design.md).
 
@@ -55,8 +55,17 @@ consequences shape the as-built system:
 
 | Lane | Cadence (America/Chicago) | Command | Feeds |
 |---|---|---|---|
-| **Nightly** — authoritative | 08:30 daily | `rfa-sync --refresh-days 3` | the 09:15 job: bronze → dbt → forecast → Sheet |
+| **Nightly** — authoritative | 21:00 daily (post-close) | `rfa-sync --refresh-days 4 --through-today` | the 21:45 job: bronze → dbt → forecast → Sheet |
 | **Intraday** — read-through | every 15 min, service hours (Tue–Sun) | `rfa-sync --today` | `intraday_today`: today-so-far vs. today's forecast |
+
+Both daily lanes run **after close** rather than the next morning, so each day's
+finalized tables and the next day's forecast are ready overnight — before the restaurant
+opens rather than an hour into service. `--through-today` shifts the refresh window to end
+today instead of yesterday; the window is **4 days, not 3**, because moving the run a day
+forward would otherwise cut each date's final re-pull to 49h after close (vs. 60.5h on the
+old morning cadence) — 4 days gives 73h, a strict superset of what the morning schedule
+captured. The 45-minute sync→job gap covers `toast-sync`'s worst-case retry budget
+(`--max-retries 1`, 900s task timeout ≈ 30 min).
 
 Only the nightly lane writes tables; its trailing 3-day re-pull finalizes each day's
 post-close edits, and intraday partials never reach bronze or the marts. The fast lane

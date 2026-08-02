@@ -32,11 +32,15 @@ resources:
         on_failure:
           - aug.l.turner@gmail.com
       schedule:
-        # INTERIM (2026-07-06): 09:15 America/Chicago -- runs after the local
-        # 08:45 extract task (scripts/morning_extract.ps1) refreshes the Volume.
-        # Restore to "0 30 4 * * ?" (04:30, after business close) when the
-        # in-cloud extract task below is re-enabled.
-        quartz_cron_expression: "0 15 9 * * ?"
+        # 21:45 America/Chicago (2026-08-02): the pipeline runs post-close, so
+        # each day's finalized tables + next-day forecast land the same night
+        # instead of the morning after. Paired with the Cloud Run sync at 21:00
+        # (`rfa-sync --refresh-days 4 --through-today`); the 45-minute gap is
+        # sized for toast-sync's worst case -- --max-retries 1 with a 900s task
+        # timeout is up to 30 min. Do not narrow it without re-checking those.
+        # History: 09:15 while the local 08:45 PC extract fed the Volume;
+        # 08:30 Cloud Run sync + 09:15 job after the PC path retired.
+        quartz_cron_expression: "0 45 21 * * ?"
         timezone_id: America/Chicago
         pause_status: PAUSED
       environments:

@@ -32,7 +32,7 @@ The forecast now lands in the lakehouse itself — `forecast_daily_sales` + `mod
 Delta tables and a `forecast_vs_actuals` dbt view — and the nightly pipeline is defined
 as code in a Databricks Asset Bundle ([`databricks.yml`](databricks.yml)). The
 `restaurant-forecast-nightly` job runs four serverless tasks in order —
-`load` → `dbt_build` → `forecast` → `publish` — on a 21:45 America/Chicago schedule
+`load` → `dbt_build` → `forecast` → `publish` — on a 21:00 America/Chicago schedule
 (unpaused in the `prod` target). See the
 [cloud design spec](docs/superpowers/specs/2026-06-29-databricks-cloud-pipeline-design.md).
 
@@ -55,7 +55,7 @@ consequences shape the as-built system:
 
 | Lane | Cadence (America/Chicago) | Command | Feeds |
 |---|---|---|---|
-| **Nightly** — authoritative | 21:00 daily (post-close) | `rfa-sync --refresh-days 4 --through-today` | the 21:45 job: bronze → dbt → forecast → Sheet |
+| **Nightly** — authoritative | 20:40 daily (post-close) | `rfa-sync --refresh-days 4 --through-today` | the 21:00 job: bronze → dbt → forecast → Sheet |
 | **Intraday** — read-through | every 15 min, service hours (Tue–Sun) | `rfa-sync --today` | `intraday_today`: today-so-far vs. today's forecast |
 
 Both daily lanes run **after close** rather than the next morning, so each day's
@@ -64,8 +64,17 @@ opens rather than an hour into service. `--through-today` shifts the refresh win
 today instead of yesterday; the window is **4 days, not 3**, because moving the run a day
 forward would otherwise cut each date's final re-pull to 49h after close (vs. 60.5h on the
 old morning cadence) — 4 days gives 73h, a strict superset of what the morning schedule
-captured. The 45-minute sync→job gap covers `toast-sync`'s worst-case retry budget
-(`--max-retries 1`, 900s task timeout ≈ 30 min).
+captured.
+
+The sync→job gap is **20 minutes** (2026-08-07, narrowed from 45 when both lanes moved
+earlier: close is 20:00, so 21:00/21:45 left the forecast landing later at night than it
+needed to). That gap no longer covers `toast-sync`'s worst-case retry budget
+(`--max-retries 1`, 900s task timeout ≈ 30 min) — observed runtime is ~2.5 min end to end,
+so it covers the normal case but not a full hang-and-retry. If the job ever builds on a
+partial Volume, widen this gap before investigating anything else. The nightly sync sits at
+**:40** rather than a quarter-hour because the intraday lane fires on :00/:15/:30/:45 and
+both lanes write the same `business_date=<today>/orders.parquet`; sharing a minute would be
+a torn-write race. Keep the nightly off those four minutes if it ever moves again.
 
 Only the nightly lane writes tables; its trailing 3-day re-pull finalizes each day's
 post-close edits, and intraday partials never reach bronze or the marts. The fast lane

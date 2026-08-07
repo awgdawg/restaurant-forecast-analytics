@@ -32,15 +32,22 @@ resources:
         on_failure:
           - aug.l.turner@gmail.com
       schedule:
-        # 21:45 America/Chicago (2026-08-02): the pipeline runs post-close, so
-        # each day's finalized tables + next-day forecast land the same night
-        # instead of the morning after. Paired with the Cloud Run sync at 21:00
-        # (`rfa-sync --refresh-days 4 --through-today`); the 45-minute gap is
-        # sized for toast-sync's worst case -- --max-retries 1 with a 900s task
-        # timeout is up to 30 min. Do not narrow it without re-checking those.
+        # 21:00 America/Chicago (2026-08-07): the pipeline runs post-close (close
+        # is 20:00), so each day's finalized tables + next-day forecast land the
+        # same night instead of the morning after. Paired with the Cloud Run sync
+        # at 20:40 (`rfa-sync --refresh-days 4 --through-today`). The sync sits at
+        # :40, not a quarter-hour, because the intraday lane fires on :00/:15/:30/
+        # :45 and both write business_date=<today>/orders.parquet -- sharing a
+        # minute is a torn-write race. Keep it off those four if it moves again.
+        # NOTE: the sync->job gap is 20 min here, down from the 45 min that sized
+        # toast-sync's worst case (--max-retries 1 x 900s timeout ~= 30 min).
+        # Observed runtime is ~2.5 min end to end, so this covers the normal case
+        # but NOT a full hang-and-retry. If the job ever reads a partial Volume,
+        # widen this gap first before looking anywhere else.
         # History: 09:15 while the local 08:45 PC extract fed the Volume;
-        # 08:30 Cloud Run sync + 09:15 job after the PC path retired.
-        quartz_cron_expression: "0 45 21 * * ?"
+        # 08:30 Cloud Run sync + 09:15 job after the PC path retired;
+        # 21:00 sync + 21:45 job from 2026-08-02.
+        quartz_cron_expression: "0 0 21 * * ?"
         timezone_id: America/Chicago
         pause_status: PAUSED
       environments:
